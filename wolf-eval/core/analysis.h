@@ -70,4 +70,11 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
 // Exposed so it can be unit-tested and reused by the Tarrasch integration.
 void scoreGame(GameReport &rep, bool whiteStarts);
 
+// The (O) rule: if the game came back into book only after an out-of-book move that was an
+// inaccuracy or worse, the re-entry doesn't count. The opening becomes what it was before the
+// gap, book ends at the last move before it, and every move after that is judged normally.
+// Needs each move's before/after scores; call before scoreGame(). Returns true if it applied.
+bool applyGapRule(GameReport &rep, const OpeningBook &book, const std::string &startFen,
+                  const std::vector<std::string> &sanMoves);
+
 } // namespace wolf

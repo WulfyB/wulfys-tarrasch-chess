@@ -50,6 +50,41 @@ void scoreGame(GameReport &rep, bool whiteStarts) {
     rep.blackStats.hasAccuracy = g.hasBlack; rep.blackStats.accuracy = g.black;
 }
 
+bool applyGapRule(GameReport &rep, const OpeningBook &book, const std::string &startFen,
+                  const std::vector<std::string> &sanMoves) {
+    OpeningInfo &op = rep.opening;
+    if (!op.gap || op.gapFirstPly < 1) return false;
+    bool weak = false;
+    for (int p = op.gapFirstPly; p <= op.gapLastPly && p <= (int)rep.moves.size(); ++p) {
+        const MoveReport &m = rep.moves[p - 1];
+        if (judge(m.before.ceiledCp(), m.after.ceiledCp(), m.white) != Judgement::None) weak = true;
+    }
+    if (!weak) return false;
+
+    std::vector<std::string> prefix(sanMoves.begin(), sanMoves.begin() + std::min<size_t>(op.gapFirstPly - 1, sanMoves.size()));
+    OpeningInfo pre = classifyOpening(book, startFen, prefix);
+    pre.gapRejected = true;
+    pre.bookEndPly = op.gapFirstPly - 1;
+    if (pre.bookEndPly > 0 && pre.bookEndPly <= (int)sanMoves.size()) pre.bookEndSan = sanMoves[pre.bookEndPly - 1];
+    pre.droppedEco = op.eco;
+    pre.droppedName = op.name;
+    pre.droppedReentryPly = op.reentryPly;
+    pre.gapFirstPly = op.gapFirstPly;
+    pre.gapLastPly = op.gapLastPly;
+    pre.reentryPly = op.reentryPly;
+    pre.leftBookPly = op.gapFirstPly;
+    pre.bookMove.resize(rep.moves.size(), false);
+    pre.games.resize(rep.moves.size(), 0);
+    pre.bookPlies = 0;
+    for (bool b : pre.bookMove) if (b) ++pre.bookPlies;
+    op = pre;
+    for (size_t i = 0; i < rep.moves.size(); ++i) {
+        rep.moves[i].book = op.bookMove[i];
+        rep.moves[i].bookGames = op.games[i];
+    }
+    return true;
+}
+
 GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOptions &opt) {
     GameReport rep;
     rep.white = game.header("White"); rep.black = game.header("Black");
@@ -153,6 +188,7 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
         rep.moves.push_back(m);
         r.PlayMove(played[i]);
     }
+    if (opt.book) applyGapRule(rep, *opt.book, fen, game.sanMoves);
     scoreGame(rep, whiteStarts);
     rep.ok = true;
     return rep;

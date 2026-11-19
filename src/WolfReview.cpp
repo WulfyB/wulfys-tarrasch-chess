@@ -340,6 +340,19 @@ public:
             ob->SetForegroundColour(wxColour(110, 110, 110));
             top->Add(ob, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
         }
+        if (rep.opening.gapRejected) {
+            wxPanel *rp = new wxPanel(this);
+            rp->SetBackgroundColour(wxColour(240, 240, 240));
+            wxBoxSizer *rs = new wxBoxSizer(wxHORIZONTAL);
+            auto mv = [&](int ply) { return ply >= 1 && ply <= (int)numbered.size() ? wxString::FromUTF8(numbered[ply - 1].c_str()) : wxString(); };
+            wxString msg = "Book ends at " + (rep.opening.bookEndPly > 0 ? mv(rep.opening.bookEndPly) : wxString("the start")) +
+                           ". The game did get back into book with " + mv(rep.opening.droppedReentryPly) + " (" +
+                           wxString::FromUTF8((rep.opening.droppedEco + " " + rep.opening.droppedName).c_str()) +
+                           "),\nbut only after a weak move out of book, so that opening isn't counted and every move after the book is judged.";
+            rs->Add(new wxStaticText(rp, wxID_ANY, msg), 1, wxALL, 8);
+            rp->SetSizer(rs);
+            top->Add(rp, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+        }
         if (rep.opening.gap) {
             wxPanel *gp = new wxPanel(this);
             gp->SetBackgroundColour(wxColour(255, 248, 225));

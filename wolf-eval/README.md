@@ -113,6 +113,11 @@ free and each is maintained by one person.
   Tarrasch shows **Add to my book**, which appends the line to `WolfReview my book.tsv`, and
   **Rerun review**. Every (O) game is also logged to `WolfReview book gaps.tsv`, so missing
   lines can be folded into the shared book.
+- **(O) after a weak move:** if any move in that out-of-book stretch was an inaccuracy or worse,
+  the return to book doesn't count. The opening stays what it was before the gap, the book ends
+  at the last move before it, and every later move is judged normally. The label then reads, for
+  example, `C44 King's Pawn Game (O, book ends at 2... Nc6)`. These games aren't logged as book
+  gaps, because a weak move isn't theory.
 
 **Your own lines:** `WolfReview my book.tsv` (next to `WolfReview.ini`) uses the same three
 columns as the Lichess files (`ECO <tab> name <tab> 1. d4 d5 2. c4 ...`). Every position on each

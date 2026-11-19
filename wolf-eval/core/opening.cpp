@@ -362,7 +362,11 @@ std::string OpeningInfo::label() const
     else if (bookPlies > 0) s = "Book line (no name)";
     else return s;
     if (transposed) s += " (T)";
-    if (gap) s += " (O)";
+    if (gapRejected) {
+        int n = (bookEndPly + 1) / 2;
+        s += " (O, book ends at " + (bookEndPly > 0 ? std::to_string(n) + (bookEndPly % 2 ? ". " : "... ") + bookEndSan
+                                                   : std::string("the start")) + ")";
+    } else if (gap) s += " (O)";
     return s;
 }
 
@@ -375,10 +379,16 @@ std::string OpeningInfo::details(const std::vector<std::string> &moves) const
     if (transposed)
         s += viaName.empty() ? "Reached by a different move order (T). "
                              : "Transposed from " + viaEco + " " + viaName + " (T). ";
-    if (gap)
+    if (gapRejected)
+        s += "Came back into book with " + mv(droppedReentryPly) + " (" + droppedEco + " " + droppedName +
+             "), but only after a weak move out of book, so the opening isn't counted after " +
+             (bookEndPly > 0 ? mv(bookEndPly) : std::string("the start")) + ". ";
+    else if (gap)
         s += "Out of book from " + mv(gapFirstPly) + (gapLastPly > gapFirstPly ? " to " + mv(gapLastPly) : "") +
              ", back in book with " + mv(reentryPly) + " (O). ";
-    if (bookPlies == 0)
+    if (gapRejected)
+        ;   // already said where book ends
+    else if (bookPlies == 0)
         s += "No book moves.";
     else if (leftBookPly > 0)
         s += "Left book with " + mv(leftBookPly) + ".";

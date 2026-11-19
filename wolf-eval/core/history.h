@@ -62,6 +62,8 @@ struct HistoryRow {
     std::string engine;
     std::string eco, opening;     // from the opening book (empty without one)
     bool        transposed = false, outOfBookGap = false;   // (T) and (O)
+    bool        gapNotCounted = false;   // (O) after a weak move: book ends before the gap
+    int         bookEndPly = 0;          // where book ends in that case
     int         bookMoves = 0;    // this player's book moves (not counted in accuracy)
     std::string bookVersion;
 };

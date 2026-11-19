@@ -77,10 +77,18 @@ struct OpeningInfo {
     int         reentryPly = 0;     // first ply back in book after the gap
     int         bookPlies = 0;      // number of book moves
     int         leftBookPly = 0;    // first ply after the last book move (0 = never left / no moves)
+    // Set by applyGapRule(): the game came back into book, but only after a weak move, so the
+    // re-entry doesn't count. The opening is what it was before the gap, and book ends there.
+    bool        gapRejected = false;
+    int         bookEndPly = 0;     // last ply that counts as book (0 = none)
+    std::string bookEndSan;         // that move, e.g. "Nc6"
+    std::string droppedEco, droppedName;   // the opening the re-entry would have given
+    int         droppedReentryPly = 0;
     std::vector<bool> bookMove;     // per ply: the move led to a book position
     std::vector<uint32_t> games;    // per ply: how many book games reached that position
 
-    // "D37 Queen's Gambit Declined: Three Knights Variation (T)(O)"
+    // "D37 Queen's Gambit Declined: Three Knights Variation (T) (O)", or with a rejected re-entry
+    // "C20 King's Pawn Game (O, book ends at 2... Nc6)"
     std::string label() const;
     // Longer, one line: adds "from ..." and where the game left / re-entered book.
     std::string details(const std::vector<std::string> &sanWithNumbers) const;

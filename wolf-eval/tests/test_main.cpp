@@ -287,6 +287,40 @@ static void testMyBook() {
     std::remove(myBookPath(ini).c_str()); std::remove(bookGapsPath(ini).c_str()); std::remove("WolfBook.bin");
 }
 
+static void testGapRule() {
+    OpeningBook small;
+    small.addNamedLine("D00", "Test QP", "1. d4 d5");
+    small.addNamedLine("D37", "Test QGD", "1. d4 d5 2. c4 e6 3. Nc3 Nf6");
+    std::vector<std::string> g = toks("d4 Nf6 c4 e6 Nc3 d5 Bg5");
+    auto make = [&](int gapLossCp) {
+        GameReport r;
+        r.opening = classifyOpening(small, "", g);
+        for (size_t i = 0; i < g.size(); ++i) {
+            MoveReport m; m.ply = int(i) + 1; m.white = i % 2 == 0; m.moveNumber = int(i) / 2 + 1; m.san = g[i];
+            m.before = Score::Cp(20); m.after = Score::Cp(20);
+            m.book = r.opening.bookMove[i];
+            r.moves.push_back(m);
+        }
+        r.moves[2].after = Score::Cp(20 - gapLossCp);   // 2.c4 (out of book) loses this much for White
+        r.evals.assign(g.size() + 1, Score::Cp(20));
+        return r;
+    };
+    GameReport ok = make(10);                    // a fine move: the (O) re-entry stands
+    CHECK(!applyGapRule(ok, small, "", g) && ok.opening.gap && ok.moves[5].book && ok.opening.name == "Test QGD");
+    GameReport bad = make(250);                  // a mistake out of book: re-entry not counted
+    CHECK(applyGapRule(bad, small, "", g));
+    CHECK(bad.opening.gapRejected && !bad.opening.gap && bad.opening.bookEndPly == 1);
+    CHECK(bad.moves[0].book && !bad.moves[5].book);     // 3...d5 is judged now
+    CHECK(bad.opening.droppedName == "Test QGD" && bad.opening.leftBookPly == 2);
+    std::printf("  e.g. %s  |  %s\n", bad.opening.label().c_str(),
+                bad.opening.details(toks("1.d4 1...Nf6 2.c4 2...e6 3.Nc3 3...d5 4.Bg5")).c_str());
+    CHECK(bad.opening.label().find("book ends at 1. d4)") != std::string::npos);
+    scoreGame(bad, true);
+    CHECK(bad.whiteStats.bookMoves == 1 && bad.blackStats.bookMoves == 0);
+    std::vector<HistoryRow> hr = historyRows(bad, "x", "now");
+    CHECK(!hr.empty() && hr[0].gapNotCounted && hr[0].bookEndPly == 1);
+}
+
 int main(int argc, char **argv) {
     if (argc > 2 && std::strcmp(argv[1], "--game-accuracy") == 0) {
         bool whiteStarts = argv[2][0] == 'W';
@@ -297,7 +331,7 @@ int main(int argc, char **argv) {
                                 g.hasBlack ? std::to_string(g.black).c_str() : "none");
         return 0;
     }
-    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring(); testMyBook();
+    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring(); testMyBook(); testGapRule();
     testOpening(argc > 1 ? argv[1] : WOLF_LICHESS_DIR);
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;
