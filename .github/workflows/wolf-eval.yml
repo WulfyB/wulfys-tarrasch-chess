@@ -32,7 +32,7 @@ jobs:
         run: |
           $assets = gh release view -R official-stockfish/Stockfish --json assets --jq '.assets[].name'
           $assets
-          $pick = ($assets | Where-Object { $_ -match 'windows' -and $_ -match 'avx2' } | Select-Object -First 1)
+          $pick = ($assets | Where-Object { $_ -match 'windows' -and $_ -match 'x86-64' } | Select-Object -First 1)
           if (-not $pick) { $pick = ($assets | Where-Object { $_ -match 'windows' } | Select-Object -First 1) }
           "Using $pick"
           gh release download -R official-stockfish/Stockfish --pattern $pick -D sfdl
