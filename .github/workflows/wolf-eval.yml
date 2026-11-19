@@ -27,11 +27,13 @@ jobs:
       - name: Smoke test with a real Stockfish
         continue-on-error: true
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          Invoke-WebRequest https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip -OutFile sf.zip
+          gh release download -R official-stockfish/Stockfish --pattern "*windows*x86-64-avx2*" -O sf.zip
           Expand-Archive sf.zip -DestinationPath sf
           $exe = Get-ChildItem sf -Recurse -Filter *.exe | Select-Object -First 1
-          wolf-eval/build/Release/wolf-eval.exe --engine $exe.FullName --depth 14 wolf-eval/tests/games/opera.pgn
+          wolf-eval/build/Release/wolf-eval.exe --engine $exe.FullName --depth 16 wolf-eval/tests/games/opera.pgn
 
       - name: Package
         shell: pwsh
