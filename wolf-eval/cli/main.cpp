@@ -20,6 +20,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include "elo.h"
 #include "../core/analysis.h"
 #include "../core/pgn.h"
 #include "../core/uci_engine.h"
@@ -136,9 +137,10 @@ static std::string jsonEscape(const std::string &s) {
 static void writeJson(const GameReport &r, const std::string &path) {
     std::ofstream f(path);
     auto stats = [&](const PlayerStats &p) {
-        char b[256];
-        std::snprintf(b, sizeof b, "{\"accuracy\":%.1f,\"acpl\":%.1f,\"moves\":%d,\"best\":%d,\"inaccuracies\":%d,\"mistakes\":%d,\"blunders\":%d}",
-                      p.accuracy, p.acpl, p.moves, p.best, p.inaccuracies, p.mistakes, p.blunders);
+        char b[320];
+        EloEstimate e = estimateElo(p);
+        std::snprintf(b, sizeof b, "{\"accuracy\":%.1f,\"acpl\":%.1f,\"moves\":%d,\"best\":%d,\"inaccuracies\":%d,\"mistakes\":%d,\"blunders\":%d,\"estElo\":%d,\"estLow\":%d,\"estHigh\":%d}",
+                      p.accuracy, p.acpl, p.moves, p.best, p.inaccuracies, p.mistakes, p.blunders, e.elo, e.low, e.high);
         return std::string(b);
     };
     f << "{\"white\":\"" << jsonEscape(r.white) << "\",\"black\":\"" << jsonEscape(r.black)
@@ -174,6 +176,9 @@ static void printReport(const GameReport &r) {
         std::printf("\n  %s: %s\n", side, name.c_str());
         std::printf("    Accuracy %.1f%%   avg loss %.1f cp   best moves %d/%d\n", p.accuracy, p.acpl, p.best, p.moves);
         std::printf("    Inaccuracies %d   Mistakes %d   Blunders %d\n", p.inaccuracies, p.mistakes, p.blunders);
+        EloEstimate e = estimateElo(p);
+        if (e.valid) std::printf("    Played like roughly %d Elo (likely %d-%d)%s\n", e.elo, e.low, e.high,
+                                 e.veryRough ? "  - very rough, short game" : "  - a rough one-game estimate");
     };
     line("White", r.white, r.whiteStats);
     line("Black", r.black, r.blackStats);

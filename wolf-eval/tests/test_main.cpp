@@ -7,6 +7,7 @@
 #include <string>
 #include "accuracy.h"
 #include "analysis.h"
+#include "elo.h"
 #include "pgn.h"
 #include "thc.h"
 
@@ -113,6 +114,25 @@ static void testScoreGame() {
     CHECK(s.moves[0].accuracy < 100);
 }
 
+static void testElo() {
+    // monotonic: better accuracy / lower loss never lowers the estimate
+    for (int a = 0; a < 100; ++a) CHECK(eloFromAccuracy(a + 1) >= eloFromAccuracy(a));
+    for (int c = 0; c < 200; ++c) CHECK(eloFromAcpl(c + 1) <= eloFromAcpl(c));
+    CHECK(eloFromAcpl(20) > 2300 && eloFromAcpl(20) < 2550);
+    CHECK(eloFromAcpl(100) > 800 && eloFromAcpl(100) < 1100);
+    PlayerStats strong; strong.hasAccuracy = true; strong.accuracy = 94; strong.acpl = 15; strong.moves = 40;
+    PlayerStats weak;   weak.hasAccuracy = true;   weak.accuracy = 62;   weak.acpl = 85; weak.moves = 40;
+    EloEstimate es = estimateElo(strong), ew = estimateElo(weak);
+    CHECK(es.valid && ew.valid);
+    CHECK(es.elo > 2400 && es.elo < 2800);
+    CHECK(ew.elo > 900 && ew.elo < 1300);
+    CHECK(es.low < es.elo && es.elo < es.high);
+    PlayerStats shortG = strong; shortG.moves = 10;
+    EloEstimate esh = estimateElo(shortG);
+    CHECK(esh.veryRough && (esh.high - esh.low) > (es.high - es.low));
+    PlayerStats none; CHECK(!estimateElo(none).valid);
+}
+
 int main(int argc, char **argv) {
     if (argc > 2 && std::strcmp(argv[1], "--game-accuracy") == 0) {
         bool whiteStarts = argv[2][0] == 'W';
@@ -123,7 +143,7 @@ int main(int argc, char **argv) {
                                 g.hasBlack ? std::to_string(g.black).c_str() : "none");
         return 0;
     }
-    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame();
+    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo();
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

@@ -21,6 +21,12 @@ Depth defaults to 22 (about what the big sites use for game review); use `--dept
   accuracies, exactly as Lichess does it (checked against a line-by-line translation of their
   Scala code on 500 random games: `tests/lichess_reference.py`).
 
+### Rough Elo estimate
+Each player also gets a "played like roughly N Elo (likely A-B)" line (and `estElo`/`estLow`/`estHigh`
+in the JSON). It blends game accuracy and ACPL through simple, documented curves (`core/elo.cpp`) and
+gives a wide range, because one game is a tiny sample: even machine-learning models that also use clock
+times miss by about 180 points on average. Short games (under 15 moves) are flagged as very rough.
+
 ### Methods
 * `sameroot` (default): for each position the engine scores the best move **and the move you
   played from the same position** (`searchmoves`). Older engines swing their evaluation by side to
