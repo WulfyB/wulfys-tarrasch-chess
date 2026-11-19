@@ -30,8 +30,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download -R official-stockfish/Stockfish --pattern "*windows*x86-64-avx2*" -O sf.zip
-          Expand-Archive sf.zip -DestinationPath sf
+          $assets = gh release view -R official-stockfish/Stockfish --json assets --jq '.assets[].name'
+          $assets
+          $pick = ($assets | Where-Object { $_ -match 'windows' -and $_ -match 'avx2' } | Select-Object -First 1)
+          if (-not $pick) { $pick = ($assets | Where-Object { $_ -match 'windows' } | Select-Object -First 1) }
+          "Using $pick"
+          gh release download -R official-stockfish/Stockfish --pattern $pick -D sfdl
+          $file = Get-ChildItem sfdl | Select-Object -First 1
+          if ($file.Extension -eq '.zip') { Expand-Archive $file.FullName -DestinationPath sf } else { New-Item -ItemType Directory sf | Out-Null; Copy-Item $file.FullName sf/ }
           $exe = Get-ChildItem sf -Recurse -Filter *.exe | Select-Object -First 1
           wolf-eval/build/Release/wolf-eval.exe --engine $exe.FullName --depth 16 wolf-eval/tests/games/opera.pgn
 
