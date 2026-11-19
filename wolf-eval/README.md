@@ -4,14 +4,14 @@ Chess.com-style **accuracy %** for your games, computed locally with any UCI eng
 (by default whichever engine Tarrasch is set to use, read from `Tarrasch.ini`). Part of Wulfy's Tarrasch.
 
 ```
-wolf-eval [--engine PATH] [--depth 30] [--method sameroot|lichess] [--json out.json] game.pgn
+wolf-eval [--engine PATH] [--depth 22] [--method sameroot|lichess] [--json out.json] game.pgn
 ```
 
 For every move it reports the engine's best move, your centipawn loss, a per-move accuracy,
 and Lichess's inaccuracy / mistake / blunder labels, then each player's game accuracy and
 average centipawn loss.
 
-Depth defaults to 30 and is capped at 40 (movetime at 60 s per position) so a run can't tie the PC up forever.
+Depth defaults to 22 (about what the big sites use for game review); use `--depth 30` for a deep look. Depth is capped at 40 and movetime at 60 s per position so a run can't tie the PC up forever. Threads and hash follow Tarrasch's engine settings when you've raised them (otherwise half your CPU threads and 256 MB), and a progress line shows the time left.
 
 ## How the numbers work
 * Evaluations become **win %** with Lichess's curve (capped at +/-10 pawns).

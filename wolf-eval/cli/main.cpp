@@ -2,15 +2,18 @@
 //
 //   wolf-eval [options] game.pgn
 //     --engine PATH     UCI engine (default: the engine Tarrasch is set to use, from Tarrasch.ini)
-//     --depth N         search depth per position (default 30, max 40)
+//     --depth N         search depth per position (default 22, max 40; 30 = "deep")
 //     --movetime MS     time per position instead of depth (max 60000)
 //     --game K          analyse only game K (1-based) of a multi-game PGN
-//     --threads N       engine threads (default 2)
-//     --hash MB         engine hash (default 128)
+//     --threads N       engine threads (default: Tarrasch's setting if raised, else half your CPU threads)
+//     --hash MB         engine hash in MB (default: Tarrasch's setting, at least 256)
 //     --json FILE       also write a JSON report
 //     --method M        "sameroot" (default: your move vs the best move from the same position)
 //                       or "lichess" (Lichess's exact before/after method)
+#include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -51,7 +54,23 @@ static std::vector<fs::path> tarraschDirs() {
     return dirs;
 }
 
-static std::string engineFromTarraschIni(std::string &iniUsed) {
+struct TarraschSettings {
+    std::string iniPath, enginePath;
+    int hashMb = 0, cores = 0;              // 0 = not set
+};
+
+static std::string iniValue(const std::string &raw) {
+    std::string v;
+    for (size_t i = 0; i < raw.size(); ++i) {          // wxFileConfig escapes backslashes as "\\"
+        if (raw[i] == '\\' && i + 1 < raw.size() && raw[i + 1] == '\\') ++i;
+        v += raw[i];
+    }
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
+    return v;
+}
+
+static TarraschSettings readTarraschIni() {
+    TarraschSettings t;
     std::error_code ec;
     for (auto &dir : tarraschDirs()) {
         fs::path ini = dir / "Tarrasch.ini";
@@ -60,18 +79,17 @@ static std::string engineFromTarraschIni(std::string &iniUsed) {
         std::string line;
         while (std::getline(f, line)) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
-            const std::string key = "EngineExeFile=";
-            if (line.compare(0, key.size(), key) != 0) continue;
-            std::string v = line.substr(key.size()), path;
-            for (size_t i = 0; i < v.size(); ++i) {          // wxFileConfig escapes backslashes as "\\"
-                if (v[i] == '\\' && i + 1 < v.size() && v[i + 1] == '\\') ++i;
-                path += v[i];
-            }
-            if (path.size() >= 2 && path.front() == '"' && path.back() == '"') path = path.substr(1, path.size() - 2);
-            if (fs::is_regular_file(path, ec)) { iniUsed = ini.string(); return path; }
+            size_t eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            std::string key = line.substr(0, eq), val = iniValue(line.substr(eq + 1));
+            if (key == "EngineExeFile" && fs::is_regular_file(val, ec)) t.enginePath = val;
+            else if (key == "EngineHash") t.hashMb = std::atoi(val.c_str());
+            else if (key == "EngineMaxCpuCores") t.cores = std::atoi(val.c_str());
         }
+        if (!t.enginePath.empty()) { t.iniPath = ini.string(); return t; }
+        t = TarraschSettings();
     }
-    return "";
+    return t;
 }
 
 // Fallback: the most recently modified Stockfish in a Tarrasch Engines folder.
@@ -93,6 +111,15 @@ static std::string newestEngineInTarrasch() {
         }
     }
     return best;
+}
+
+static std::string fmtTime(double secs) {
+    char b[32];
+    int s = (int)(secs + 0.5);
+    if (s < 60) std::snprintf(b, sizeof b, "%ds", s);
+    else if (s < 3600) std::snprintf(b, sizeof b, "%dm %02ds", s / 60, s % 60);
+    else std::snprintf(b, sizeof b, "%dh %02dm", s / 3600, (s % 3600) / 60);
+    return b;
 }
 
 static std::string jsonEscape(const std::string &s) {
@@ -155,9 +182,9 @@ static void printReport(const GameReport &r) {
 int main(int argc, char **argv) {
     std::string enginePath, pgnPath, jsonPath;
     AnalysisOptions opt;
-    opt.depth = 30;
+    opt.depth = 22;
     const int MAX_DEPTH = 40, MAX_MOVETIME = 60000;
-    int gameIndex = 0, threads = 2, hash = 128;
+    int gameIndex = 0, threads = 0, hash = 0;     // 0 = decide below
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&](const char *what) -> std::string {
@@ -177,24 +204,31 @@ int main(int argc, char **argv) {
             else if (m == "sameroot") opt.method = Method::SameRoot;
             else { std::fprintf(stderr, "--method must be sameroot or lichess\n"); return 2; }
         }
-        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N (default 30, max 40)] [--movetime MS] [--method sameroot|lichess] [--game K] [--json FILE] game.pgn\n"); return 0; }
+        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N (default 22, max 40)] [--threads N] [--hash MB] [--movetime MS] [--method sameroot|lichess] [--game K] [--json FILE] game.pgn\n"); return 0; }
         else pgnPath = a;
     }
     if (pgnPath.empty()) { std::fprintf(stderr, "usage: wolf-eval [options] game.pgn   (--help for options)\n"); return 2; }
     if (opt.depth < 1 || opt.depth > MAX_DEPTH) { std::fprintf(stderr, "--depth must be between 1 and %d.\n", MAX_DEPTH); return 2; }
     if (opt.movetimeMs < 0 || opt.movetimeMs > MAX_MOVETIME) { std::fprintf(stderr, "--movetime must be at most %d ms.\n", MAX_MOVETIME); return 2; }
     std::string engineSource = "--engine";
-    if (enginePath.empty()) {
-        std::string ini;
-        enginePath = engineFromTarraschIni(ini);
-        if (!enginePath.empty()) engineSource = "Tarrasch's setting (" + ini + ")";
+    TarraschSettings ts = readTarraschIni();
+    if (enginePath.empty() && !ts.enginePath.empty()) {
+        enginePath = ts.enginePath;
+        engineSource = "Tarrasch's setting (" + ts.iniPath + ")";
     }
+    int hw = (int)std::thread::hardware_concurrency();
+    if (hw <= 0) hw = 2;
+    if (threads <= 0) threads = ts.cores > 1 ? ts.cores : std::max(1, hw / 2);
+    threads = std::min(threads, hw);
+    if (hash <= 0) hash = std::max(256, ts.hashMb);
     if (enginePath.empty()) {
         enginePath = newestEngineInTarrasch();
         if (!enginePath.empty()) engineSource = "newest Stockfish in Tarrasch's Engines folder";
     }
     if (enginePath.empty()) { std::fprintf(stderr, "No engine found. Pass --engine PATH (e.g. your Stockfish .exe).\n"); return 2; }
-    std::fprintf(stderr, "Using engine %s\n  (from %s)\n", enginePath.c_str(), engineSource.c_str());
+    std::fprintf(stderr, "Using engine %s\n  (from %s)\n  %d thread%s, %d MB hash, ", enginePath.c_str(), engineSource.c_str(), threads, threads == 1 ? "" : "s", hash);
+    if (opt.movetimeMs > 0) std::fprintf(stderr, "%d ms per position\n", opt.movetimeMs);
+    else std::fprintf(stderr, "depth %d\n", opt.depth);
 
     std::string text;
     if (!readFile(pgnPath, text)) { std::fprintf(stderr, "Cannot read %s\n", pgnPath.c_str()); return 1; }
@@ -207,13 +241,25 @@ int main(int argc, char **argv) {
     engine.setOption("Threads", std::to_string(threads));
     engine.setOption("Hash", std::to_string(hash));
 
-    opt.progress = [](int done, int total) { std::fprintf(stderr, "\r  analysing %d/%d   ", done, total); std::fflush(stderr); return true; };
+    auto started = std::chrono::steady_clock::now();
+    opt.progress = [&started](int done, int total) {
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        double left = done > 0 ? secs / done * (total - done) : 0;
+        char eta[48];
+        if (done >= total) std::snprintf(eta, sizeof eta, "done in %s", fmtTime(secs).c_str());
+        else if (done < 2) std::snprintf(eta, sizeof eta, "estimating time...");
+        else std::snprintf(eta, sizeof eta, "about %s left", fmtTime(left).c_str());
+        std::fprintf(stderr, "\r  position %d/%d   %-24s", done, total, eta);
+        std::fflush(stderr);
+        return true;
+    };
 
     int rc = 0;
     for (size_t g = 0; g < games.size(); ++g) {
         if (gameIndex > 0 && int(g) + 1 != gameIndex) continue;
+        started = std::chrono::steady_clock::now();
         GameReport rep = analyseGame(games[g], engine, opt);
-        std::fprintf(stderr, "\r                          \r");
+        std::fprintf(stderr, "\n");
         if (!rep.ok) { std::fprintf(stderr, "Game %zu: %s\n", g + 1, rep.error.c_str()); rc = 1; continue; }
         printReport(rep);
         if (!jsonPath.empty()) {
