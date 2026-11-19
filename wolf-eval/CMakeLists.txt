@@ -26,6 +26,9 @@ if (WIN32)
 endif()
 
 enable_testing()
+add_executable(wolf-book cli/book_main.cpp)
+target_link_libraries(wolf-book wolfcore)
+
 add_executable(wolf-tests tests/test_main.cpp)
 target_link_libraries(wolf-tests wolfcore)
 target_compile_definitions(wolf-tests PRIVATE WOLF_LICHESS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/book/lichess")
