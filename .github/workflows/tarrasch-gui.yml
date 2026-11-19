@@ -54,8 +54,18 @@ jobs:
       - name: Build Tarrasch
         run: msbuild TarraschVS2019.vcxproj /m /v:minimal /p:Configuration=Release /p:Platform=Win32
 
+      - name: Include the latest opening book (if one has been built)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          exe=$(ls vc_mswu/*/*.exe vc_mswu/*.exe 2>/dev/null | head -1)
+          gh release download opening-book -p WolfBook.bin -D "$(dirname "$exe")" || echo "No opening book published yet"
+
       - uses: actions/upload-artifact@v4
         with:
           name: WulfysTarrasch-exe
-          path: vc_mswu/**/*.exe
+          path: |
+            vc_mswu/**/*.exe
+            vc_mswu/**/WolfBook.bin
           if-no-files-found: error

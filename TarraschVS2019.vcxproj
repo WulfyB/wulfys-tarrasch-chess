@@ -170,6 +170,11 @@
       <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <ClCompile Include="wolf-eval\core\opening.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="src\Atom.cpp" />
     <ClCompile Include="src\BinDb.cpp" />
     <ClCompile Include="src\Book.cpp" />

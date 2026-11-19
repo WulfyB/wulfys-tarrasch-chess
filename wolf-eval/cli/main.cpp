@@ -9,6 +9,9 @@
 //     --hash MB         engine hash in MB (default: Tarrasch's setting, at least 256)
 //     --json FILE       also write a JSON report
 //     --history FILE    add each player's result to a review-history CSV (same file Tarrasch uses)
+//     --book FILE       opening book (default: WolfBook.bin next to Tarrasch.ini, plus your
+//                       "WolfReview my book.tsv"); book moves are not judged
+//     --no-book         judge every move
 //     --method M        "sameroot" (default: your move vs the best move from the same position)
 //                       or "lichess" (Lichess's exact before/after method)
 #include <algorithm>
@@ -166,7 +169,8 @@ static void printReport(const GameReport &r) {
 }
 
 int main(int argc, char **argv) {
-    std::string enginePath, pgnPath, jsonPath, historyCsv;
+    std::string enginePath, pgnPath, jsonPath, historyCsv, bookPath;
+    bool noBook = false;
     AnalysisOptions opt;
     opt.depth = 22;
     const int MAX_DEPTH = 40, MAX_MOVETIME = 60000;
@@ -185,13 +189,15 @@ int main(int argc, char **argv) {
         else if (a == "--hash") hash = std::atoi(next("--hash").c_str());
         else if (a == "--json") jsonPath = next("--json");
         else if (a == "--history") historyCsv = next("--history");
+        else if (a == "--book") bookPath = next("--book");
+        else if (a == "--no-book") noBook = true;
         else if (a == "--method") {
             std::string m = next("--method");
             if (m == "lichess") opt.method = Method::Lichess;
             else if (m == "sameroot") opt.method = Method::SameRoot;
             else { std::fprintf(stderr, "--method must be sameroot or lichess\n"); return 2; }
         }
-        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N (default 22, max 40)] [--threads N] [--hash MB] [--movetime MS] [--method sameroot|lichess] [--game K] [--json FILE] [--history FILE.csv] game.pgn\n"); return 0; }
+        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N (default 22, max 40)] [--threads N] [--hash MB] [--movetime MS] [--method sameroot|lichess] [--game K] [--json FILE] [--history FILE.csv] [--book WolfBook.bin | --no-book] game.pgn\n"); return 0; }
         else pgnPath = a;
     }
     if (pgnPath.empty()) { std::fprintf(stderr, "usage: wolf-eval [options] game.pgn   (--help for options)\n"); return 2; }
@@ -227,6 +233,17 @@ int main(int argc, char **argv) {
     if (!engine.start(enginePath, err)) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
     engine.setOption("Threads", std::to_string(threads));
     engine.setOption("Hash", std::to_string(hash));
+
+    OpeningBook book;
+    if (!noBook) {
+        std::string dir = ts.iniPath.empty() ? std::string() : ts.iniPath.substr(0, ts.iniPath.find_last_of("/\\") + 1);
+        ReviewSettings rs;
+        loadSettings(dir + "WolfReview.ini", rs);
+        if (!bookPath.empty()) rs.bookFile = bookPath;
+        std::string status;
+        if (loadReviewBook(dir + "WolfReview.ini", rs, {"WolfBook.bin"}, book, status)) opt.book = &book;
+        std::fprintf(stderr, "  %s\n", status.c_str());
+    }
 
     auto started = std::chrono::steady_clock::now();
     opt.progress = [&started](int done, int total) {

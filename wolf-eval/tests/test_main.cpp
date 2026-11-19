@@ -265,6 +265,28 @@ static void testBookScoring() {
     CHECK(formatReport(r).find("Book") != std::string::npos);
 }
 
+static void testMyBook() {
+    std::string ini = "wolf_test_mb.ini";
+    std::remove(myBookPath(ini).c_str()); std::remove(bookGapsPath(ini).c_str()); std::remove("WolfBook.bin");
+    ReviewSettings rs; OpeningBook b; std::string st, err;
+    CHECK(!loadReviewBook(ini, rs, {}, b, st));                  // nothing there yet
+    OpeningBook small; small.addNamedLine("D37", "Test QGD", "1. d4 d5 2. c4 e6 3. Nc3 Nf6");
+    std::vector<std::string> g = toks("d4 Nf6 c4 e6 Nc3 d5 Bg5");
+    OpeningInfo info = classifyOpening(small, "", g);
+    CHECK(info.gap);
+    CHECK(addToMyBook(ini, gapTsvLine(info, g), err));
+    CHECK(loadReviewBook(ini, rs, {}, b, st) && st.find("1 line") != std::string::npos);
+    OpeningInfo again = classifyOpening(b, "", g);
+    CHECK(!again.gap && again.bookMove[1] && again.name == "Test QGD");
+    small.version = "unit"; CHECK(small.save("WolfBook.bin", err));
+    CHECK(loadReviewBook(ini, rs, {}, b, st) && st.find("unit") != std::string::npos);
+    GameReport r; r.white = "A"; r.black = "B"; r.opening = info;
+    CHECK(logBookGap(ini, r, "g1", gapTsvLine(info, g), err) && logBookGap(ini, r, "g1", gapTsvLine(info, g), err));
+    std::string text; readFile(bookGapsPath(ini), text);
+    CHECK(text.find("g1\t") != std::string::npos && text.find("g1\t") == text.rfind("g1\t"));   // logged once
+    std::remove(myBookPath(ini).c_str()); std::remove(bookGapsPath(ini).c_str()); std::remove("WolfBook.bin");
+}
+
 int main(int argc, char **argv) {
     if (argc > 2 && std::strcmp(argv[1], "--game-accuracy") == 0) {
         bool whiteStarts = argv[2][0] == 'W';
@@ -275,7 +297,7 @@ int main(int argc, char **argv) {
                                 g.hasBlack ? std::to_string(g.black).c_str() : "none");
         return 0;
     }
-    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring();
+    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring(); testMyBook();
     testOpening(argc > 1 ? argv[1] : WOLF_LICHESS_DIR);
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;

@@ -11,6 +11,9 @@
  *        "Previous / Next mistake" to hop between errors
  *      - Copy report (the full text review), Add review to game
  *        (?! / ? / ?? plus "Best was ..." comments and a summary)
+ *   Opening book (WolfBook.bin + "WolfReview my book.tsv"): book moves show
+ *   as Book and aren't judged; the opening is named, with (T) for a
+ *   transposition and (O) when the game left book and came back.
  *   Settings live in WolfReview.ini, and every review is added to
  *   "WolfReview history.csv" (both in Tarrasch's documents folder). Each
  *   player card compares with earlier games reviewed the same way only
@@ -35,6 +38,7 @@
 #include "../wolf-eval/core/history.h"
 #include "wx/utils.h"
 #include "wx/filename.h"
+#include "wx/stdpaths.h"
 #include <functional>
 #include <thread>
 
@@ -52,11 +56,19 @@ std::string settingsPath()
     return std::string((dir + "/WolfReview.ini").mb_str());
 }
 
+std::vector<std::string> bookFallbacks()
+{
+    wxFileName exe(wxStandardPaths::Get().GetExecutablePath());
+    return { std::string((exe.GetPath() + "/WolfBook.bin").mb_str()) };
+}
+
+wolf::OpeningBook g_book;     // reloaded for each review, so a new WolfBook.bin is picked up
+
 class ReviewSettingsDialog : public wxDialog
 {
 public:
     wxRadioBox *depth, *method;
-    wxCheckBox *record;
+    wxCheckBox *record, *useBook;
     int customDepth = 0;     // a depth set by hand in the .ini that isn't one of the four
 
     ReviewSettingsDialog(wxWindow *parent, const wolf::ReviewSettings &cur)
@@ -87,6 +99,9 @@ public:
         record = new wxCheckBox(this, wxID_ANY, "Save the results to my review history (CSV)");
         record->SetValue(cur.recordHistory);
         top->Add(record, 0, wxLEFT | wxRIGHT | wxTOP, 10);
+        useBook = new wxCheckBox(this, wxID_ANY, "Use the opening book (book moves aren't judged; names the opening)");
+        useBook->SetValue(cur.useBook);
+        top->Add(useBook, 0, wxLEFT | wxRIGHT | wxTOP, 10);
         wxStaticText *note = new wxStaticText(this, wxID_ANY,
             "Deeper is more accurate but slower. Uses the engine from Options > Engine.\n"
             "History averages only compare games reviewed at the same depth and method.");
@@ -103,6 +118,7 @@ public:
         s.depth = (i >= 0 && i < 4) ? kDepths[i] : (customDepth > 0 ? customDepth : 18);
         s.method = method->GetSelection() == 1 ? wolf::Method::Lichess : wolf::Method::SameRoot;
         s.recordHistory = record->GetValue();
+        s.useBook = useBook->GetValue();
     }
 };
 
@@ -129,6 +145,8 @@ wxColour judgementTint(wolf::Judgement j)
 }
 
 const wxColour kBestColour(40, 140, 60);
+const wxColour kBookColour(60, 110, 170);
+const wxColour kBookTint(226, 238, 252);
 
 const char *nagFor(wolf::Judgement j, char &nag)
 {
@@ -161,8 +179,10 @@ public:
         SetBackgroundStyle(wxBG_STYLE_PAINT);
         for (const wolf::Score &s : rep.evals)
             chances.push_back(wolf::winningChances(s.ceiledCp()));
-        for (const wolf::MoveReport &m : rep.moves)
+        for (const wolf::MoveReport &m : rep.moves) {
             marks.push_back(m.judgement);
+            book.push_back(m.book);
+        }
         SetToolTip("Evaluation graph - click or drag to step through the game");
         Bind(wxEVT_PAINT, &EvalGraph::OnPaint, this);
         Bind(wxEVT_SIZE, [this](wxSizeEvent &e) { Refresh(); e.Skip(); });
@@ -175,6 +195,7 @@ public:
 private:
     std::vector<double> chances;
     std::vector<wolf::Judgement> marks;
+    std::vector<bool> book;
     int selected = -2;
     int lastPicked = -3;
     static const int kMargin = 6;
@@ -230,6 +251,14 @@ private:
         dc.SetBrush(wxBrush(wxColour(236, 236, 236)));      // White's side
         dc.DrawPolygon((int)poly.size(), &poly[0]);
 
+        // Book moves: a blue strip along the top
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(kBookColour));
+        for (size_t i = 0; i < book.size() && i + 1 < chances.size(); ++i)
+            if (book[i]) {
+                int x0 = xFor((int)i, w), x1 = xFor((int)i + 1, w);
+                dc.DrawRectangle(x0, 0, x1 - x0 + 1, 4);
+            }
         dc.SetPen(wxPen(wxColour(140, 140, 140), 1, wxPENSTYLE_SHORT_DASH));
         dc.DrawLine(0, h / 2, w, h / 2);
         dc.SetPen(wxPen(wxColour(120, 120, 120), 1));
@@ -263,10 +292,12 @@ class ReviewWindow : public wxDialog
 {
 public:
     ReviewWindow(wxWindow *parent, GameLogic *gl_, const wolf::GameReport &rep_, const std::vector<thc::Move> &reviewed_,
-                 const std::string &gameId_, const std::string &historyCsv_, const wxString &historyNote)
+                 const std::string &gameId_, const std::string &historyCsv_, const wxString &historyNote,
+                 const std::string &iniPath_, const std::string &bookStatus_)
         : wxDialog(parent, wxID_ANY, "Game review", wxDefaultPosition, wxSize(900, 800),
                    wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER | wxMAXIMIZE_BOX | wxMINIMIZE_BOX),
-          gl(gl_), rep(rep_), reviewed(reviewed_), gameId(gameId_), historyCsv(historyCsv_)
+          gl(gl_), rep(rep_), reviewed(reviewed_), gameId(gameId_), historyCsv(historyCsv_),
+          iniPath(iniPath_), bookStatus(bookStatus_)
     {
         history = wolf::readHistory(historyCsv);
         wxBoxSizer *top = new wxBoxSizer(wxVERTICAL);
@@ -284,7 +315,49 @@ public:
             sub = wxString::FromUTF8(rep.event.c_str()) + "  -  " + sub;
         wxStaticText *s = new wxStaticText(this, wxID_ANY, sub);
         s->SetForegroundColour(wxColour(110, 110, 110));
-        top->Add(s, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+        top->Add(s, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
+
+        // Opening
+        std::vector<std::string> numbered;
+        for (const wolf::MoveReport &m : rep.moves)
+            numbered.push_back(std::to_string(m.moveNumber) + (m.white ? ". " : "... ") + m.san);
+        std::string label = rep.opening.label();
+        if (!label.empty()) {
+            wxStaticText *op = new wxStaticText(this, wxID_ANY, wxString::FromUTF8(label.c_str()));
+            op->SetFont(op->GetFont().Bold().Scaled(1.1f));
+            op->SetForegroundColour(kBookColour.ChangeLightness(70));
+            op->SetToolTip("(T) = reached by a different move order than the textbook line\n"
+                           "(O) = left the book and came back into it\n\nBook: " + wxString::FromUTF8(rep.bookVersion.c_str()));
+            top->Add(op, 0, wxLEFT | wxRIGHT, 10);
+            wxStaticText *od = new wxStaticText(this, wxID_ANY, wxString::FromUTF8(rep.opening.details(numbered).c_str()));
+            od->SetForegroundColour(wxColour(90, 90, 90));
+            top->Add(od, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+        } else if (!bookStatus.empty()) {
+            wxStaticText *ob = new wxStaticText(this, wxID_ANY, wxString::FromUTF8(bookStatus.c_str()));
+            ob->SetForegroundColour(wxColour(110, 110, 110));
+            top->Add(ob, 0, wxLEFT | wxRIGHT | wxBOTTOM, 10);
+        }
+        if (rep.opening.gap) {
+            wxPanel *gp = new wxPanel(this);
+            gp->SetBackgroundColour(wxColour(255, 248, 225));
+            wxBoxSizer *gs = new wxBoxSizer(wxHORIZONTAL);
+            auto mv = [&](int ply) { return ply >= 1 && ply <= (int)numbered.size() ? wxString::FromUTF8(numbered[ply - 1].c_str()) : wxString(); };
+            wxString msg = "(O) Out of book from " + mv(rep.opening.gapFirstPly) +
+                           (rep.opening.gapLastPly > rep.opening.gapFirstPly ? " to " + mv(rep.opening.gapLastPly) : wxString()) +
+                           ", then back in book with " + mv(rep.opening.reentryPly) +
+                           ".\nIf that was real theory, add it to your book and review again so those moves aren't judged.";
+            wxStaticText *gt = new wxStaticText(gp, wxID_ANY, msg);
+            gs->Add(gt, 1, wxALIGN_CENTER_VERTICAL | wxALL, 8);
+            addBookBtn = new wxButton(gp, wxID_ANY, "Add to my book");
+            addBookBtn->SetToolTip("Adds the moves up to the re-entry to \"WolfReview my book.tsv\"");
+            wxButton *rerun = new wxButton(gp, wxID_ANY, "Rerun review");
+            gs->Add(addBookBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            gs->Add(rerun, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+            gp->SetSizer(gs);
+            top->Add(gp, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+            addBookBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { AddGapToBook(); });
+            rerun->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { Rerun(); });
+        }
 
         // Player cards
         wxBoxSizer *cards = new wxBoxSizer(wxHORIZONTAL);
@@ -315,7 +388,7 @@ public:
         list->AppendColumn("Move", wxLIST_FORMAT_LEFT, 110);
         list->AppendColumn("Verdict", wxLIST_FORMAT_LEFT, 100);
         list->AppendColumn("Eval", wxLIST_FORMAT_RIGHT, 70);
-        list->AppendColumn("Engine's best", wxLIST_FORMAT_LEFT, 120);
+        list->AppendColumn("Engine's best / book", wxLIST_FORMAT_LEFT, 140);
         list->AppendColumn("Loss", wxLIST_FORMAT_RIGHT, 60);
         list->AppendColumn("Accuracy", wxLIST_FORMAT_RIGHT, 80);
         list->Bind(wxEVT_LIST_ITEM_SELECTED, [this](wxListEvent &e) {
@@ -367,7 +440,8 @@ private:
     GameLogic *gl;
     wolf::GameReport rep;
     std::vector<thc::Move> reviewed;
-    std::string gameId, historyCsv;
+    std::string gameId, historyCsv, iniPath, bookStatus;
+    wxButton *addBookBtn = nullptr;
     std::vector<wolf::HistoryRow> history;
     EvalGraph *graph = nullptr;
     wxListCtrl *list = nullptr;
@@ -383,7 +457,8 @@ private:
         wxStaticBoxSizer *box = new wxStaticBoxSizer(wxVERTICAL, this, side + ":  " + wxString::FromUTF8(name.c_str()));
         wxWindow *sb = box->GetStaticBox();
         if (!p.hasAccuracy || p.moves == 0) {
-            box->Add(new wxStaticText(sb, wxID_ANY, "No moves to judge."), 0, wxALL, 8);
+            box->Add(new wxStaticText(sb, wxID_ANY, p.bookMoves ? wxString::Format("All %d moves were book moves - nothing to judge.", p.bookMoves)
+                                                                : wxString("No moves to judge.")), 0, wxALL, 8);
             return box;
         }
         wxBoxSizer *row = new wxBoxSizer(wxHORIZONTAL);
@@ -416,6 +491,8 @@ private:
         count("inaccuracies", p.inaccuracies, judgementColour(wolf::Judgement::Inaccuracy));
         count("mistakes", p.mistakes, judgementColour(wolf::Judgement::Mistake));
         count("blunders", p.blunders, judgementColour(wolf::Judgement::Blunder));
+        if (p.bookMoves)
+            count("book", p.bookMoves, kBookColour);
         box->Add(counts, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
         // Earlier games by this player, reviewed the same way (same depth, method and engine)
@@ -453,10 +530,20 @@ private:
             if (only && m.judgement == wolf::Judgement::None)
                 continue;
             long row = list->InsertItem(list->GetItemCount(), moveLabel(m));
-            wxString verdict = m.judgement != wolf::Judgement::None ? wxString(wolf::judgementName(m.judgement))
-                                                                    : (m.isBest ? wxString("Best") : wxString());
+            wxString verdict = m.book ? wxString("Book")
+                             : m.judgement != wolf::Judgement::None ? wxString(wolf::judgementName(m.judgement))
+                             : (m.isBest ? wxString("Best") : wxString());
             list->SetItem(row, 1, verdict);
             list->SetItem(row, 2, wxString(m.after.str().c_str()));
+            if (m.book) {
+                list->SetItem(row, 3, m.bookGames > 1 ? wxString::Format("%u games", m.bookGames) : wxString("named line"));
+                list->SetItem(row, 4, "-");
+                list->SetItem(row, 5, "-");
+                list->SetItemBackgroundColour(row, kBookTint);
+                list->SetItemTextColour(row, kBookColour.ChangeLightness(70));
+                rowMove.push_back((int)i);
+                continue;
+            }
             list->SetItem(row, 3, m.isBest ? wxString("-") : wxString::FromUTF8(m.bestSan.c_str()));
             list->SetItem(row, 4, m.cpl > 0 ? wxString::Format("%d", m.cpl) : wxString("0"));
             list->SetItem(row, 5, wxString::Format("%.0f%%", m.accuracy));
@@ -548,6 +635,29 @@ private:
                 txt += "  -  engine preferred " + wxString::FromUTF8(m.bestSan.c_str()) + " (" + wxString(m.before.str().c_str()) + ")";
             status->SetLabel(txt);
         }
+    }
+
+    void AddGapToBook()
+    {
+        std::vector<std::string> san;
+        for (const wolf::MoveReport &m : rep.moves) san.push_back(m.san);
+        std::string line = wolf::gapTsvLine(rep.opening, san), err;
+        if (line.empty())
+            return;
+        if (!wolf::addToMyBook(iniPath, line, err)) {
+            status->SetLabel(wxString::FromUTF8(err.c_str()));
+            return;
+        }
+        addBookBtn->Disable();
+        addBookBtn->SetLabel("Added");
+        status->SetLabel("Added to WolfReview my book.tsv. Press Rerun review to review the game with it.");
+    }
+
+    void Rerun()
+    {
+        wxCommandEvent ev(wxEVT_MENU, ID_CMD_GAME_REVIEW);
+        wxPostEvent(objs.frame, ev);
+        Close();
     }
 
     void CopyReport()
@@ -667,6 +777,13 @@ void GameLogic::CmdGameReview()
     wolf::AnalysisOptions opt;
     opt.depth = cfg.depth;
     opt.method = cfg.method;
+    std::string bookStatus;
+    if (cfg.useBook) {
+        if (wolf::loadReviewBook(iniPath, cfg, bookFallbacks(), g_book, bookStatus))
+            opt.book = &g_book;
+    } else {
+        bookStatus = "Opening book turned off in the review settings.";
+    }
     opt.progress = [&progress, total](int done, int) {
         return progress.Update(done < total ? done : total - 1,
                                wxString::Format("Position %d of %d", done, total));
@@ -684,6 +801,12 @@ void GameLogic::CmdGameReview()
 
     // Review history (CSV): one row per player, tagged with depth / method / engine
     std::string gameId = wolf::gameFingerprint(games[0]);
+    if (rep.opening.gap) {
+        std::vector<std::string> san;
+        for (const wolf::MoveReport &m : rep.moves) san.push_back(m.san);
+        std::string gerr;
+        wolf::logBookGap(iniPath, rep, gameId, wolf::gapTsvLine(rep.opening, san), gerr);
+    }
     std::string csv = wolf::historyPath(iniPath, cfg);
     wxString note;
     if (cfg.recordHistory) {
@@ -696,6 +819,6 @@ void GameLogic::CmdGameReview()
 
     if (g_open)
         g_open->Close();
-    g_open = new ReviewWindow(objs.frame, this, rep, reviewed, gameId, csv, note);
+    g_open = new ReviewWindow(objs.frame, this, rep, reviewed, gameId, csv, note, iniPath, bookStatus);
     g_open->Show();
 }

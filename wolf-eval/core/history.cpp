@@ -149,6 +149,10 @@ bool loadSettings(const std::string &iniPath, ReviewSettings &s)
             s.recordHistory = truthy(v);
         } else if (k == "history_file") {
             s.historyFile = v;
+        } else if (k == "use_book") {
+            s.useBook = truthy(v);
+        } else if (k == "book_file") {
+            s.bookFile = v;
         }
     }
     return true;
@@ -171,7 +175,12 @@ bool saveSettings(const std::string &iniPath, const ReviewSettings &s)
         << "; yes = add every review to the history file below\r\n"
         << "record_history = " << (s.recordHistory ? "yes" : "no") << "\r\n"
         << "; Leave empty for \"WolfReview history.csv\" next to this file.\r\n"
-        << "history_file = " << s.historyFile << "\r\n";
+        << "history_file = " << s.historyFile << "\r\n"
+        << "; yes = use the opening book: book moves aren't judged, and the opening is named\r\n"
+        << "use_book = " << (s.useBook ? "yes" : "no") << "\r\n"
+        << "; Leave empty for WolfBook.bin next to this file (or next to Tarrasch.exe).\r\n"
+        << "; Your own additions go in \"WolfReview my book.tsv\" next to this file.\r\n"
+        << "book_file = " << s.bookFile << "\r\n";
     return (bool)out;
 }
 
@@ -180,6 +189,76 @@ std::string historyPath(const std::string &iniPath, const ReviewSettings &s)
     if (!trim(s.historyFile).empty())
         return trim(s.historyFile);
     return folderOf(iniPath) + "WolfReview history.csv";
+}
+
+std::string myBookPath(const std::string &iniPath)   { return folderOf(iniPath) + "WolfReview my book.tsv"; }
+std::string bookGapsPath(const std::string &iniPath) { return folderOf(iniPath) + "WolfReview book gaps.tsv"; }
+
+static bool fileExists(const std::string &p)
+{
+    std::FILE *f = std::fopen(p.c_str(), "rb");
+    if (f) std::fclose(f);
+    return f != nullptr;
+}
+
+bool loadReviewBook(const std::string &iniPath, const ReviewSettings &s, const std::vector<std::string> &fallbacks,
+                    OpeningBook &book, std::string &status)
+{
+    book = OpeningBook();
+    std::vector<std::string> tries;
+    if (!trim(s.bookFile).empty()) tries.push_back(trim(s.bookFile));
+    else {
+        tries.push_back(folderOf(iniPath) + "WolfBook.bin");
+        for (const std::string &f : fallbacks) tries.push_back(f);
+    }
+    std::string err, from;
+    for (const std::string &p : tries) {
+        if (!fileExists(p)) continue;
+        if (book.load(p, err)) { from = p; break; }
+        status = err;
+        return false;
+    }
+    std::string mine = myBookPath(iniPath);
+    int added = fileExists(mine) ? book.addTsvFile(mine, err) : 0;
+    if (from.empty() && added <= 0) {
+        status = "No opening book found (WolfBook.bin), so every move is judged.";
+        return false;
+    }
+    status = from.empty() ? "Using only your own book additions." : "Opening book: " + (book.version.empty() ? from : book.version);
+    if (added > 0) status += " + " + std::to_string(added) + " line" + (added == 1 ? "" : "s") + " of your own";
+    return true;
+}
+
+bool addToMyBook(const std::string &iniPath, const std::string &tsvLine, std::string &err)
+{
+    std::string p = myBookPath(iniPath);
+    bool fresh = !fileExists(p);
+    std::ofstream out(p, std::ios::binary | std::ios::app);
+    if (!out) { err = "Couldn't write " + p; return false; }
+    if (fresh)
+        out << "# Your own opening book lines, added on top of WolfBook.bin. Same format as Lichess's\r\n"
+               "# chess-openings files: ECO <tab> name <tab> moves. Every position on a line counts as book.\r\n"
+               "eco\tname\tpgn\r\n";
+    out << tsvLine << "\r\n";
+    return (bool)out;
+}
+
+bool logBookGap(const std::string &iniPath, const GameReport &rep, const std::string &gameId,
+                const std::string &tsvLine, std::string &err)
+{
+    std::string p = bookGapsPath(iniPath), text;
+    if (readFile(p, text) && text.find(gameId + "\t") != std::string::npos && text.find(tsvLine) != std::string::npos)
+        return true;   // already logged
+    bool fresh = text.empty();
+    std::ofstream out(p, std::ios::binary | std::ios::app);
+    if (!out) { err = "Couldn't write " + p; return false; }
+    if (fresh)
+        out << "game_id\tlogged_at\twhite\tblack\tdate\topening\tgap\teco\tname\tpgn\r\n";
+    char gap[64];
+    std::snprintf(gap, sizeof gap, "plies %d-%d, back at %d", rep.opening.gapFirstPly, rep.opening.gapLastPly, rep.opening.reentryPly);
+    out << gameId << "\t" << nowStamp() << "\t" << rep.white << "\t" << rep.black << "\t" << rep.date << "\t"
+        << rep.opening.label() << "\t" << gap << "\t" << tsvLine << "\r\n";
+    return (bool)out;
 }
 
 // ------------------------------------------------------------------ history

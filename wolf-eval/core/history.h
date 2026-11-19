@@ -19,6 +19,8 @@ struct ReviewSettings {
     Method      method = Method::SameRoot;
     bool        recordHistory = true;
     std::string historyFile;      // empty = "WolfReview history.csv" next to the .ini
+    bool        useBook = true;   // mark book moves (not punished) and name the opening
+    std::string bookFile;         // empty = "WolfBook.bin" next to the .ini (or next to Tarrasch.exe)
 };
 
 // Missing file or keys keep the defaults. Returns false only if the file exists but can't be read.
@@ -26,6 +28,21 @@ bool loadSettings(const std::string &iniPath, ReviewSettings &s);
 bool saveSettings(const std::string &iniPath, const ReviewSettings &s);
 // The history file to use: s.historyFile, or "WolfReview history.csv" in the ini's folder.
 std::string historyPath(const std::string &iniPath, const ReviewSettings &s);
+
+// Files next to the .ini: your own book additions and the log of (O) gaps.
+std::string myBookPath(const std::string &iniPath);     // "WolfReview my book.tsv"
+std::string bookGapsPath(const std::string &iniPath);   // "WolfReview book gaps.tsv"
+
+// Loads the opening book for a review: s.bookFile, else WolfBook.bin next to the .ini, else the
+// first of `fallbacks` that exists; then your own additions on top. `status` says what was loaded
+// (or why not). Returns false if no book could be loaded (the review then runs without one).
+bool loadReviewBook(const std::string &iniPath, const ReviewSettings &s, const std::vector<std::string> &fallbacks,
+                    OpeningBook &book, std::string &status);
+// Appends one Lichess-style TSV line to your book additions (creating the file with a header).
+bool addToMyBook(const std::string &iniPath, const std::string &tsvLine, std::string &err);
+// Logs an (O) gap so the book can be checked and improved later. Same game + line = one entry.
+bool logBookGap(const std::string &iniPath, const GameReport &rep, const std::string &gameId,
+                const std::string &tsvLine, std::string &err);
 
 const char *methodKey(Method m);              // "sameroot" / "lichess"
 bool parseMethod(const std::string &text, Method &m);
