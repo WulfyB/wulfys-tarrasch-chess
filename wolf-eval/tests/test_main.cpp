@@ -142,16 +142,16 @@ static void testElo() {
 
 
 static void testHistory() {
-    std::string dir = "/tmp/wolf_hist_test/";
-    int rc_ = std::system(("mkdir -p " + dir + " && rm -f " + dir + "*").c_str()); (void)rc_;
-    std::string ini = dir + "WolfReview.ini";
+    // Works in the current folder (portable); cleans up after itself.
+    std::string ini = "wolf_test_WolfReview.ini";
+    std::remove(ini.c_str()); std::remove("WolfReview history.csv");
     ReviewSettings s;
     CHECK(loadSettings(ini, s) && s.depth == 18 && s.recordHistory);   // missing file = defaults
     s.depth = 22; s.method = Method::Lichess; s.recordHistory = false;
     CHECK(saveSettings(ini, s));
     ReviewSettings t;
     CHECK(loadSettings(ini, t) && t.depth == 22 && t.method == Method::Lichess && !t.recordHistory);
-    CHECK(historyPath(ini, t) == dir + "WolfReview history.csv");
+    CHECK(historyPath(ini, t) == "WolfReview history.csv");
 
     PgnGame g; g.headers["White"] = "Wulfy, The"; g.headers["Black"] = "Bot \"X\""; g.sanMoves = {"e4", "e5"};
     PgnGame g2 = g; g2.sanMoves.push_back("Nf3");
@@ -181,6 +181,7 @@ static void testHistory() {
     CHECK(summarizePlayer(all, "Wulfy, The", likeDeep, "").games == 1);
     HistoryRow likeOther = like; likeOther.engine = "Komodo";
     CHECK(summarizePlayer(all, "Wulfy, The", likeOther, "").games == 0);
+    std::remove(ini.c_str()); std::remove(csv.c_str());
 }
 
 int main(int argc, char **argv) {
