@@ -8,6 +8,7 @@
 //     --threads N       engine threads (default: Tarrasch's setting if raised, else half your CPU threads)
 //     --hash MB         engine hash in MB (default: Tarrasch's setting, at least 256)
 //     --json FILE       also write a JSON report
+//     --history FILE    add each player's result to a review-history CSV (same file Tarrasch uses)
 //     --method M        "sameroot" (default: your move vs the best move from the same position)
 //                       or "lichess" (Lichess's exact before/after method)
 #include <algorithm>
@@ -22,6 +23,7 @@
 #include <vector>
 #include "elo.h"
 #include "report.h"
+#include "history.h"
 #include "../core/analysis.h"
 #include "../core/pgn.h"
 #include "../core/uci_engine.h"
@@ -164,7 +166,7 @@ static void printReport(const GameReport &r) {
 }
 
 int main(int argc, char **argv) {
-    std::string enginePath, pgnPath, jsonPath;
+    std::string enginePath, pgnPath, jsonPath, historyCsv;
     AnalysisOptions opt;
     opt.depth = 22;
     const int MAX_DEPTH = 40, MAX_MOVETIME = 60000;
@@ -182,13 +184,14 @@ int main(int argc, char **argv) {
         else if (a == "--threads") threads = std::atoi(next("--threads").c_str());
         else if (a == "--hash") hash = std::atoi(next("--hash").c_str());
         else if (a == "--json") jsonPath = next("--json");
+        else if (a == "--history") historyCsv = next("--history");
         else if (a == "--method") {
             std::string m = next("--method");
             if (m == "lichess") opt.method = Method::Lichess;
             else if (m == "sameroot") opt.method = Method::SameRoot;
             else { std::fprintf(stderr, "--method must be sameroot or lichess\n"); return 2; }
         }
-        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N (default 22, max 40)] [--threads N] [--hash MB] [--movetime MS] [--method sameroot|lichess] [--game K] [--json FILE] game.pgn\n"); return 0; }
+        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N (default 22, max 40)] [--threads N] [--hash MB] [--movetime MS] [--method sameroot|lichess] [--game K] [--json FILE] [--history FILE.csv] game.pgn\n"); return 0; }
         else pgnPath = a;
     }
     if (pgnPath.empty()) { std::fprintf(stderr, "usage: wolf-eval [options] game.pgn   (--help for options)\n"); return 2; }
@@ -250,6 +253,13 @@ int main(int argc, char **argv) {
             std::string p = jsonPath;
             if (games.size() > 1 && gameIndex == 0) p += "." + std::to_string(g + 1) + ".json";
             writeJson(rep, p);
+        }
+        if (!historyCsv.empty()) {
+            std::string herr;
+            if (recordHistory(historyCsv, historyRows(rep, gameFingerprint(games[g]), nowStamp()), herr))
+                std::fprintf(stderr, "Added to history: %s\n", historyCsv.c_str());
+            else
+                std::fprintf(stderr, "%s\n", herr.c_str());
         }
     }
     return rc;

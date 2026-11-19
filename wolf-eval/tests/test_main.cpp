@@ -9,6 +9,8 @@
 #include "analysis.h"
 #include "elo.h"
 #include "report.h"
+#include "history.h"
+#include <cstdio>
 #include "pgn.h"
 #include "thc.h"
 
@@ -138,6 +140,49 @@ static void testElo() {
     CHECK(txt.find("Played like roughly") != std::string::npos);
 }
 
+
+static void testHistory() {
+    std::string dir = "/tmp/wolf_hist_test/";
+    int rc_ = std::system(("mkdir -p " + dir + " && rm -f " + dir + "*").c_str()); (void)rc_;
+    std::string ini = dir + "WolfReview.ini";
+    ReviewSettings s;
+    CHECK(loadSettings(ini, s) && s.depth == 18 && s.recordHistory);   // missing file = defaults
+    s.depth = 22; s.method = Method::Lichess; s.recordHistory = false;
+    CHECK(saveSettings(ini, s));
+    ReviewSettings t;
+    CHECK(loadSettings(ini, t) && t.depth == 22 && t.method == Method::Lichess && !t.recordHistory);
+    CHECK(historyPath(ini, t) == dir + "WolfReview history.csv");
+
+    PgnGame g; g.headers["White"] = "Wulfy, The"; g.headers["Black"] = "Bot \"X\""; g.sanMoves = {"e4", "e5"};
+    PgnGame g2 = g; g2.sanMoves.push_back("Nf3");
+    CHECK(gameFingerprint(g) == gameFingerprint(g) && gameFingerprint(g) != gameFingerprint(g2));
+
+    GameReport r; r.white = "Wulfy, The"; r.black = "Bot \"X\""; r.depth = 18; r.engineName = "Stockfish 17";
+    r.whiteStats.hasAccuracy = true; r.whiteStats.accuracy = 85.25; r.whiteStats.acpl = 30; r.whiteStats.moves = 30;
+    r.blackStats.hasAccuracy = true; r.blackStats.accuracy = 70; r.blackStats.acpl = 60; r.blackStats.moves = 30;
+    std::string csv = historyPath(ini, t), err;
+    std::vector<HistoryRow> rows = historyRows(r, gameFingerprint(g), "2026-11-19 15:00");
+    CHECK(rows.size() == 2 && rows[0].color == "white" && rows[1].player == "Bot \"X\"" && rows[0].estElo > 0);
+    CHECK(recordHistory(csv, rows, err));
+    CHECK(recordHistory(csv, rows, err));                        // same game, same setup: replaced
+    CHECK(readHistory(csv).size() == 2);
+    GameReport deep = r; deep.depth = 22;                         // same game, deeper: kept separately
+    CHECK(recordHistory(csv, historyRows(deep, gameFingerprint(g), "2026-11-19 16:00"), err));
+    GameReport other = r; other.whiteStats.accuracy = 95.25;
+    CHECK(recordHistory(csv, historyRows(other, gameFingerprint(g2), "2026-11-19 17:00"), err));
+    std::vector<HistoryRow> all = readHistory(csv);
+    CHECK(all.size() == 6);
+    CHECK(all[1].player == "Bot \"X\"" && all[0].white == "Wulfy, The" && near(all[0].accuracy, 85.25, 0.06));
+    HistoryRow like = rows[0];
+    PlayerHistory h = summarizePlayer(all, " wulfy, the ", like, "");
+    CHECK(h.games == 2 && near(h.avgAccuracy, (85.25 + 95.25) / 2, 0.11));   // depth-22 row not mixed in
+    CHECK(summarizePlayer(all, "Wulfy, The", like, gameFingerprint(g2)).games == 1);
+    HistoryRow likeDeep = like; likeDeep.depth = 22;
+    CHECK(summarizePlayer(all, "Wulfy, The", likeDeep, "").games == 1);
+    HistoryRow likeOther = like; likeOther.engine = "Komodo";
+    CHECK(summarizePlayer(all, "Wulfy, The", likeOther, "").games == 0);
+}
+
 int main(int argc, char **argv) {
     if (argc > 2 && std::strcmp(argv[1], "--game-accuracy") == 0) {
         bool whiteStarts = argv[2][0] == 'W';
@@ -148,7 +193,7 @@ int main(int argc, char **argv) {
                                 g.hasBlack ? std::to_string(g.black).c_str() : "none");
         return 0;
     }
-    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo();
+    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory();
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

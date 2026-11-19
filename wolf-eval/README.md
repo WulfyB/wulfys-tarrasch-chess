@@ -42,3 +42,39 @@ build/wolf-tests                                   # unit tests
 python3 tests/lichess_reference.py build/wolf-tests  # cross-check against Lichess's formula
 ```
 Uses Tarrasch's own chess library (`../src/thc.cpp`) for move legality and notation.
+
+## Review settings and history
+
+Tarrasch's **Commands > Game review** keeps two files in Tarrasch's documents folder
+(the same folder as `Tarrasch.ini`, usually `Documents\Tarrasch`):
+
+**`WolfReview.ini`**: the review settings. Tarrasch rewrites it whenever you press OK in the
+review settings popup, and you can also edit it by hand:
+
+```ini
+[WolfReview]
+depth = 18              ; 1-40 (the popup offers 14, 18, 22, 26; other values show as "From WolfReview.ini")
+method = sameroot       ; sameroot (best move vs. move played) or lichess
+record_history = yes    ; add every review to the history CSV
+history_file =          ; empty = "WolfReview history.csv" next to the .ini
+```
+
+**`WolfReview history.csv`** has one row per player per reviewed game, for spreadsheets and
+anything else we build later. The command-line tool can add to the same file with
+`wolf-eval --history "path\to\WolfReview history.csv" game.pgn`.
+
+| column | meaning |
+|---|---|
+| reviewed_at | when the review ran (local time) |
+| game_id | fingerprint of players, date, start position and moves (same game = same id) |
+| game_date, event, white, black, result | from the game's PGN tags |
+| player, color, opponent | whose row this is |
+| accuracy, acpl | game accuracy % and average centipawn loss |
+| moves, best, inaccuracies, mistakes, blunders | that player's move counts |
+| est_elo, elo_low, elo_high | the rough one-game Elo estimate and its likely range |
+| depth, method, engine | **how** the game was reviewed |
+
+Like with like: accuracy and Elo numbers from different depths, methods or engines aren't
+comparable, so every average the app shows uses only rows with the same depth, method and
+engine. Reviewing the same game again with the same setup replaces its old rows. A different
+depth adds a separate set of rows, so you can compare them.

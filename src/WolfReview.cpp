@@ -11,6 +11,10 @@
  *        "Previous / Next mistake" to hop between errors
  *      - Copy report (the full text review), Add review to game
  *        (?! / ? / ?? plus "Best was ..." comments and a summary)
+ *   Settings live in WolfReview.ini, and every review is added to
+ *   "WolfReview history.csv" (both in Tarrasch's documents folder). Each
+ *   player card compares with earlier games reviewed the same way only
+ *   (same depth, method and engine).
  *  Uses the Wolf Eval core in ../wolf-eval/core (same code as wolf-eval.exe).
  ****************************************************************************/
 #ifndef _CRT_SECURE_NO_DEPRECATE
@@ -28,6 +32,9 @@
 #include "../wolf-eval/core/analysis.h"
 #include "../wolf-eval/core/elo.h"
 #include "../wolf-eval/core/report.h"
+#include "../wolf-eval/core/history.h"
+#include "wx/utils.h"
+#include "wx/filename.h"
 #include <functional>
 #include <thread>
 
@@ -36,35 +43,66 @@ namespace {
 // ---------------------------------------------------------------- settings
 
 const int kDepths[] = { 14, 18, 22, 26 };
-int  g_depthChoice  = 1;      // remembered while Tarrasch is open
-int  g_methodChoice = 0;
+
+std::string settingsPath()
+{
+    wxString dir = objs.repository->nv.m_doc_dir;
+    if (dir.empty())
+        dir = wxFileName::GetCwd();
+    return std::string((dir + "/WolfReview.ini").mb_str());
+}
 
 class ReviewSettingsDialog : public wxDialog
 {
 public:
     wxRadioBox *depth, *method;
-    ReviewSettingsDialog(wxWindow *parent)
+    wxCheckBox *record;
+    int customDepth = 0;     // a depth set by hand in the .ini that isn't one of the four
+
+    ReviewSettingsDialog(wxWindow *parent, const wolf::ReviewSettings &cur)
         : wxDialog(parent, wxID_ANY, "Game review")
     {
         wxBoxSizer *top = new wxBoxSizer(wxVERTICAL);
-        wxString depths[] = { "Quick (depth 14)", "Standard (depth 18)", "Deep (depth 22)", "Very deep (depth 26)" };
+        wxArrayString depths;
+        depths.Add("Quick (depth 14)"); depths.Add("Standard (depth 18)");
+        depths.Add("Deep (depth 22)");  depths.Add("Very deep (depth 26)");
+        int sel = -1;
+        for (int i = 0; i < 4; ++i)
+            if (kDepths[i] == cur.depth) sel = i;
+        if (sel < 0) {
+            customDepth = cur.depth;
+            depths.Add(wxString::Format("From WolfReview.ini (depth %d)", cur.depth));
+            sel = 4;
+        }
         depth = new wxRadioBox(this, wxID_ANY, "How hard should the engine look?", wxDefaultPosition,
-                               wxDefaultSize, 4, depths, 1, wxRA_SPECIFY_COLS);
-        depth->SetSelection(g_depthChoice);
+                               wxDefaultSize, depths, 1, wxRA_SPECIFY_COLS);
+        depth->SetSelection(sel);
         top->Add(depth, 0, wxEXPAND | wxALL, 10);
         wxString methods[] = { "Best move vs. the move played (recommended)",
                                "Lichess style (evaluation before vs. after each move)" };
         method = new wxRadioBox(this, wxID_ANY, "How to judge each move", wxDefaultPosition,
                                 wxDefaultSize, 2, methods, 1, wxRA_SPECIFY_COLS);
-        method->SetSelection(g_methodChoice);
+        method->SetSelection(cur.method == wolf::Method::Lichess ? 1 : 0);
         top->Add(method, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
+        record = new wxCheckBox(this, wxID_ANY, "Save the results to my review history (CSV)");
+        record->SetValue(cur.recordHistory);
+        top->Add(record, 0, wxLEFT | wxRIGHT | wxTOP, 10);
         wxStaticText *note = new wxStaticText(this, wxID_ANY,
-            "Deeper is more accurate but slower. Uses the engine from Options > Engine.");
+            "Deeper is more accurate but slower. Uses the engine from Options > Engine.\n"
+            "History averages only compare games reviewed at the same depth and method.");
         note->SetForegroundColour(wxColour(100, 100, 100));
         top->Add(note, 0, wxALL, 10);
         top->Add(CreateStdDialogButtonSizer(wxOK | wxCANCEL), 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
         SetSizerAndFit(top);
         CentreOnParent();
+    }
+
+    void Apply(wolf::ReviewSettings &s) const
+    {
+        int i = depth->GetSelection();
+        s.depth = (i >= 0 && i < 4) ? kDepths[i] : (customDepth > 0 ? customDepth : 18);
+        s.method = method->GetSelection() == 1 ? wolf::Method::Lichess : wolf::Method::SameRoot;
+        s.recordHistory = record->GetValue();
     }
 };
 
@@ -224,11 +262,13 @@ ReviewWindow *g_open = nullptr;   // one review window at a time
 class ReviewWindow : public wxDialog
 {
 public:
-    ReviewWindow(wxWindow *parent, GameLogic *gl_, const wolf::GameReport &rep_, const std::vector<thc::Move> &reviewed_)
-        : wxDialog(parent, wxID_ANY, "Game review", wxDefaultPosition, wxSize(900, 760),
+    ReviewWindow(wxWindow *parent, GameLogic *gl_, const wolf::GameReport &rep_, const std::vector<thc::Move> &reviewed_,
+                 const std::string &gameId_, const std::string &historyCsv_, const wxString &historyNote)
+        : wxDialog(parent, wxID_ANY, "Game review", wxDefaultPosition, wxSize(900, 800),
                    wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER | wxMAXIMIZE_BOX | wxMINIMIZE_BOX),
-          gl(gl_), rep(rep_), reviewed(reviewed_)
+          gl(gl_), rep(rep_), reviewed(reviewed_), gameId(gameId_), historyCsv(historyCsv_)
     {
+        history = wolf::readHistory(historyCsv);
         wxBoxSizer *top = new wxBoxSizer(wxVERTICAL);
 
         // Title line
@@ -287,11 +327,19 @@ public:
         FillList();
 
         // Status + buttons
-        status = new wxStaticText(this, wxID_ANY, "Click a move or the graph to see it on the board.");
+        status = new wxStaticText(this, wxID_ANY, historyNote.empty() ? wxString("Click a move or the graph to see it on the board.") : historyNote);
         status->SetForegroundColour(wxColour(110, 110, 110));
         top->Add(status, 0, wxLEFT | wxRIGHT, 10);
         wxBoxSizer *buttons = new wxBoxSizer(wxHORIZONTAL);
         wxButton *copy = new wxButton(this, wxID_ANY, "Copy report");
+        wxButton *hist = new wxButton(this, wxID_ANY, "Open history");
+        hist->SetToolTip(wxString::FromUTF8(historyCsv.c_str()));
+        hist->Enable(wxFileExists(wxString(historyCsv.c_str(), wxConvLibc)));
+        buttons->Add(hist, 0, wxRIGHT, 8);
+        hist->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+            if (!wxLaunchDefaultApplication(wxString(historyCsv.c_str(), wxConvLibc)))
+                status->SetLabel("Couldn't open " + wxString(historyCsv.c_str(), wxConvLibc));
+        });
         addBtn = new wxButton(this, wxID_ANY, "Add review to game");
         addBtn->SetToolTip("Marks the main line with ?! / ? / ?? and 'Best was ...' comments, plus a summary at the end (undo-able)");
         wxButton *close = new wxButton(this, wxID_CLOSE, "Close");
@@ -319,6 +367,8 @@ private:
     GameLogic *gl;
     wolf::GameReport rep;
     std::vector<thc::Move> reviewed;
+    std::string gameId, historyCsv;
+    std::vector<wolf::HistoryRow> history;
     EvalGraph *graph = nullptr;
     wxListCtrl *list = nullptr;
     wxCheckBox *onlyErrors = nullptr;
@@ -367,6 +417,27 @@ private:
         count("mistakes", p.mistakes, judgementColour(wolf::Judgement::Mistake));
         count("blunders", p.blunders, judgementColour(wolf::Judgement::Blunder));
         box->Add(counts, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
+
+        // Earlier games by this player, reviewed the same way (same depth, method and engine)
+        wolf::HistoryRow like;
+        like.depth = rep.depth;
+        like.method = wolf::methodKey(rep.method);
+        like.engine = rep.engineName;
+        wolf::PlayerHistory h = wolf::summarizePlayer(history, name, like, gameId);
+        wxString line;
+        if (h.games == 0)
+            line = wxString::Format("No earlier games in your history at depth %d with this method.", rep.depth);
+        else {
+            line = wxString::Format("Earlier: %d game%s at depth %d, average %.1f%%", h.games, h.games == 1 ? "" : "s",
+                                    rep.depth, h.avgAccuracy);
+            if (h.avgElo > 0)
+                line += wxString::Format(", ~%d Elo (%d-%d)", (int)(h.avgElo + 0.5), h.worstElo, h.bestElo);
+            double diff = p.accuracy - h.avgAccuracy;
+            line += wxString::Format(".  This game: %s%.1f", diff >= 0 ? "+" : "", diff);
+        }
+        wxStaticText *ht = new wxStaticText(sb, wxID_ANY, line);
+        ht->SetForegroundColour(wxColour(90, 90, 140));
+        box->Add(ht, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
         return box;
     }
 
@@ -547,11 +618,14 @@ void GameLogic::CmdGameReview()
         return;
     }
 
-    ReviewSettingsDialog settings(objs.frame);
+    std::string iniPath = settingsPath();
+    wolf::ReviewSettings cfg;
+    wolf::loadSettings(iniPath, cfg);
+    ReviewSettingsDialog settings(objs.frame, cfg);
     if (settings.ShowModal() != wxID_OK)
         return;
-    g_depthChoice = settings.depth->GetSelection();
-    g_methodChoice = settings.method->GetSelection();
+    settings.Apply(cfg);
+    wolf::saveSettings(iniPath, cfg);
 
     // The current game as PGN (main line), same text as "Copy game to clipboard"
     gd.FleshOutDate();
@@ -591,8 +665,8 @@ void GameLogic::CmdGameReview()
                               total, objs.frame,
                               wxPD_APP_MODAL | wxPD_CAN_ABORT | wxPD_ELAPSED_TIME | wxPD_REMAINING_TIME | wxPD_AUTO_HIDE);
     wolf::AnalysisOptions opt;
-    opt.depth = kDepths[g_depthChoice >= 0 && g_depthChoice < 4 ? g_depthChoice : 1];
-    opt.method = g_methodChoice == 1 ? wolf::Method::Lichess : wolf::Method::SameRoot;
+    opt.depth = cfg.depth;
+    opt.method = cfg.method;
     opt.progress = [&progress, total](int done, int) {
         return progress.Update(done < total ? done : total - 1,
                                wxString::Format("Position %d of %d", done, total));
@@ -608,8 +682,20 @@ void GameLogic::CmdGameReview()
     if (reviewed.size() > rep.moves.size())
         reviewed.resize(rep.moves.size());
 
+    // Review history (CSV): one row per player, tagged with depth / method / engine
+    std::string gameId = wolf::gameFingerprint(games[0]);
+    std::string csv = wolf::historyPath(iniPath, cfg);
+    wxString note;
+    if (cfg.recordHistory) {
+        std::string herr;
+        if (wolf::recordHistory(csv, wolf::historyRows(rep, gameId, wolf::nowStamp()), herr))
+            note = "Saved to your review history.  Click a move or the graph to see it on the board.";
+        else
+            note = "Not saved to history: " + wxString(herr.c_str(), wxConvLibc);
+    }
+
     if (g_open)
         g_open->Close();
-    g_open = new ReviewWindow(objs.frame, this, rep, reviewed);
+    g_open = new ReviewWindow(objs.frame, this, rep, reviewed, gameId, csv, note);
     g_open->Show();
 }
