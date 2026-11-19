@@ -8,6 +8,7 @@
 #include "accuracy.h"
 #include "analysis.h"
 #include "elo.h"
+#include "report.h"
 #include "pgn.h"
 #include "thc.h"
 
@@ -131,6 +132,10 @@ static void testElo() {
     EloEstimate esh = estimateElo(shortG);
     CHECK(esh.veryRough && (esh.high - esh.low) > (es.high - es.low));
     PlayerStats none; CHECK(!estimateElo(none).valid);
+    GameReport r; r.white = "Morphy"; r.black = "Allies"; r.whiteStats = strong; r.blackStats = weak;
+    std::string txt = formatReport(r);
+    CHECK(txt.find("Morphy") != std::string::npos);
+    CHECK(txt.find("Played like roughly") != std::string::npos);
 }
 
 int main(int argc, char **argv) {

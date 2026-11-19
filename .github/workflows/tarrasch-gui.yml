@@ -1,0 +1,49 @@
+name: Wulfy's Tarrasch (GUI build)
+
+# Builds the whole Tarrasch app (wxWidgets GUI) on Windows, the same way the
+# Visual Studio project does locally: 32-bit Release, static wxWidgets 3.1,
+# static C runtime. The finished Tarrasch.exe is attached to each run.
+on:
+  push:
+    branches: [wolf-eval]
+    paths: ['src/**', 'wolf-eval/core/**', 'TarraschVS2019.vcxproj', '.github/workflows/tarrasch-gui.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache wxWidgets build
+        id: wxcache
+        uses: actions/cache@v4
+        with:
+          path: wxWidgets
+          key: wx-3.1.7-v143-win32-release-staticcrt-v1
+
+      - name: Get wxWidgets 3.1.7
+        if: steps.wxcache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch v3.1.7 --recurse-submodules --shallow-submodules https://github.com/wxWidgets/wxWidgets.git wxWidgets
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build wxWidgets (static libs, static runtime)
+        if: steps.wxcache.outputs.cache-hit != 'true'
+        working-directory: wxWidgets/build/msw
+        run: msbuild wx_vc16.sln /m /v:minimal /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:wxRuntimeLibs=static
+
+      - name: Provide setup.h where the project looks for it
+        shell: pwsh
+        run: |
+          if (!(Test-Path wxWidgets/lib/vc_lib/mswud)) { Copy-Item -Recurse wxWidgets/lib/vc_lib/mswu wxWidgets/lib/vc_lib/mswud }
+          Get-ChildItem wxWidgets/lib/vc_lib -Filter *.lib | Select-Object -ExpandProperty Name
+
+      - name: Build Tarrasch
+        run: msbuild TarraschVS2019.vcxproj /m /v:minimal /p:Configuration=Release /p:Platform=Win32
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WulfysTarrasch-exe
+          path: vc_mswu/**/*.exe
+          if-no-files-found: error

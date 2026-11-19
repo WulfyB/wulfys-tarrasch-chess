@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <string>
 #include "elo.h"
 #include <algorithm>
 #include <cmath>

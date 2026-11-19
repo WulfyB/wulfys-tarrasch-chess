@@ -130,6 +130,41 @@
     </Bscmake>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\WolfReview.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="wolf-eval\core\accuracy.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="wolf-eval\core\pgn.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="wolf-eval\core\uci_engine.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="wolf-eval\core\analysis.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="wolf-eval\core\elo.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="wolf-eval\core\report.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ForcedIncludeFiles>cstdint;string;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>src;wolf-eval\core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="src\Atom.cpp" />
     <ClCompile Include="src\BinDb.cpp" />
     <ClCompile Include="src\Book.cpp" />

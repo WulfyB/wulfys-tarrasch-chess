@@ -739,6 +739,7 @@ public:
     void OnMoveNow    (wxCommandEvent &);
         void OnUpdateMoveNow(wxUpdateUIEvent &);
     void OnBareGame    (wxCommandEvent &);
+    void OnGameReview  (wxCommandEvent &);
         void OnUpdateBareGame(wxUpdateUIEvent &);
     void OnDraw       (wxCommandEvent &);
         void OnUpdateDraw(wxUpdateUIEvent &);
@@ -1131,6 +1132,7 @@ BEGIN_EVENT_TABLE(ChessFrame, wxFrame)
         EVT_UPDATE_UI (ID_CMD_TAKEBACK,     ChessFrame::OnUpdateTakeback)
     EVT_MENU (ID_CMD_MOVENOW,      ChessFrame::OnMoveNow)
         EVT_UPDATE_UI (ID_CMD_MOVENOW,      ChessFrame::OnUpdateMoveNow)
+    EVT_MENU (ID_CMD_GAME_REVIEW,  ChessFrame::OnGameReview)
     EVT_MENU (ID_CMD_BARE_GAME,    ChessFrame::OnBareGame)
         EVT_UPDATE_UI (ID_CMD_BARE_GAME,    ChessFrame::OnUpdateBareGame)
     EVT_MENU (ID_CMD_DRAW,         ChessFrame::OnDraw)
@@ -1330,6 +1332,7 @@ ChessFrame::ChessFrame(const wxString& title, const wxPoint& pos, const wxSize& 
     menu_commands->Append (ID_CMD_CLEAR_KIBITZ, "Clear kibitz text");
     #endif
 
+    menu_commands->Append (ID_CMD_GAME_REVIEW,      "Game review (accuracy)...", "Engine review of the current game: accuracy, mistakes and a rough Elo for each player");
     menu_commands->Append (ID_CMD_BARE_GAME,        "Strip comments, variations", "Remove comments and variations");
     menu_commands->Append (ID_CMD_DRAW,             "Draw", "Indicate game result, or claim draw when playing against engine");
     menu_commands->Append (ID_CMD_WHITE_RESIGNS,    "White resigns", "Indicate game result, or concede when playing White against engine");
@@ -2147,6 +2150,11 @@ void ChessFrame::OnUpdateEditPromoteRestToVariation( wxUpdateUIEvent &event )
 {
     bool enabled = true;
     event.Enable(enabled);
+}
+
+void ChessFrame::OnGameReview(wxCommandEvent &)
+{
+    objs.gl->CmdGameReview();
 }
 
 void ChessFrame::OnBareGame(wxCommandEvent &)

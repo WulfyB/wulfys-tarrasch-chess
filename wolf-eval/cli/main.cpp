@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 #include "elo.h"
+#include "report.h"
 #include "../core/analysis.h"
 #include "../core/pgn.h"
 #include "../core/uci_engine.h"
@@ -159,30 +160,7 @@ static void writeJson(const GameReport &r, const std::string &path) {
 }
 
 static void printReport(const GameReport &r) {
-    std::printf("\n%s vs %s   %s   (%s, %s)\n", r.white.c_str(), r.black.c_str(), r.result.c_str(), r.event.c_str(), r.date.c_str());
-    const char *method = r.method == Method::Lichess ? "Lichess method" : "same-root method";
-    if (r.movetimeMs > 0) std::printf("Engine: %s, %d ms per position, %s\n\n", r.engineName.c_str(), r.movetimeMs, method);
-    else                  std::printf("Engine: %s, depth %d, %s\n\n", r.engineName.c_str(), r.depth, method);
-
-    std::printf("  Move              Value     Best        Loss  Acc.  \n");
-    for (const MoveReport &m : r.moves) {
-        char num[16];
-        std::snprintf(num, sizeof num, m.white ? "%d." : "%d...", m.moveNumber);
-        std::printf("  %-6s %-9s %7s   %-10s %5d  %5.1f  %s%s\n", num, m.san.c_str(), m.after.str().c_str(),
-                    m.isBest ? "(best)" : m.bestSan.c_str(), m.cpl, m.accuracy,
-                    judgementName(m.judgement), m.isBest ? "" : "");
-    }
-    auto line = [](const char *side, const std::string &name, const PlayerStats &p) {
-        std::printf("\n  %s: %s\n", side, name.c_str());
-        std::printf("    Accuracy %.1f%%   avg loss %.1f cp   best moves %d/%d\n", p.accuracy, p.acpl, p.best, p.moves);
-        std::printf("    Inaccuracies %d   Mistakes %d   Blunders %d\n", p.inaccuracies, p.mistakes, p.blunders);
-        EloEstimate e = estimateElo(p);
-        if (e.valid) std::printf("    Played like roughly %d Elo (likely %d-%d)%s\n", e.elo, e.low, e.high,
-                                 e.veryRough ? "  - very rough, short game" : "  - a rough one-game estimate");
-    };
-    line("White", r.white, r.whiteStats);
-    line("Black", r.black, r.blackStats);
-    std::printf("\n");
+    std::printf("\n%s\n", formatReport(r).c_str());
 }
 
 int main(int argc, char **argv) {

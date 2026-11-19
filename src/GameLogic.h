@@ -108,6 +108,7 @@ public:
     void NextGamePreviousGame( int idx );
 
     void CmdBareGame();
+    void CmdGameReview();   // Wulfy's Tarrasch: Wolf Eval accuracy review
     void CmdDraw();
     void CmdWhiteResigns();
     void CmdBlackResigns();

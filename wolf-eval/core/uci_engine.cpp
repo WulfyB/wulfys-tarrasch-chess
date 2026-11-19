@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <string>
 #include "uci_engine.h"
 #include <sstream>
 #include <vector>

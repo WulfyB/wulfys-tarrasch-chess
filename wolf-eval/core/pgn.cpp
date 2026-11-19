@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <string>
 #include "pgn.h"
 #include <cctype>
 #include <fstream>

@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <string>
 #include "accuracy.h"
 #include <algorithm>
 #include <cmath>
