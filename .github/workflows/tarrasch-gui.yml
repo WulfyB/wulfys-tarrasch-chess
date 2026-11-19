@@ -59,7 +59,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          exe=$(ls vc_mswu/*/*.exe vc_mswu/*.exe 2>/dev/null | head -1)
+          exe=$(find vc_mswu -name '*.exe' | head -1)
+          echo "exe: $exe"
           gh release download opening-book -p WolfBook.bin -D "$(dirname "$exe")" || echo "No opening book published yet"
 
       - uses: actions/upload-artifact@v4
