@@ -149,9 +149,19 @@ jobs:
       - name: Publish on the opening-book release
         run: |
           if ! gh release view opening-book >/dev/null 2>&1; then
-            gh release create opening-book --title "Opening book" --notes "WolfBook.bin for Wolf Eval / Wulfy's Tarrasch. Put it in Tarrasch's documents folder (next to Tarrasch.ini). Rebuilt monthly." --latest=false
+            gh release create opening-book --title "Opening book" --notes "WolfBook.bin for Wolf Eval / Wulfy's Tarrasch." --latest=false
           fi
           gh release upload opening-book WolfBook.bin WolfBook-counts.cnt sources.txt --clobber
-          gh release edit opening-book --notes "WolfBook.bin for Wolf Eval / Wulfy's Tarrasch. Put it in Tarrasch's documents folder (next to Tarrasch.ini). Rebuilt monthly.
-
-          Current: $BOOK_VERSION"
+          {
+            echo "**WolfBook.bin**: the opening book for Wolf Eval / Wulfy's Tarrasch. Put it in Tarrasch's documents folder (next to Tarrasch.ini) or next to Tarrasch.exe. Rebuilt on the 3rd of every month."
+            echo
+            echo "Current build: \`$BOOK_VERSION\`"
+            echo
+            echo "### Credits"
+            echo "- **[The Week in Chess](https://theweekinchess.com)** by **Mark Crowther**, editor since 1994. Weekly over-the-board games of strong players (issues 920 onward). Please support TWIC by donating on its website."
+            echo "- **[Lichess Elite Database](https://database.nikonoel.fr)** by **nikonoel**. lichess.org games, 2400+ vs 2200+, no bullet, filtered from the [Lichess open database](https://database.lichess.org)."
+            echo "- **[lichess-org/chess-openings](https://github.com/lichess-org/chess-openings)** (CC0). Opening names and ECO codes."
+            echo
+            echo "The book contains only position fingerprints and how many strong games reached each position. No games, names or other source text are included or redistributed. Full details: [wolf-eval/book/CREDITS.md](https://github.com/${{ github.repository }}/blob/wolf-eval/wolf-eval/book/CREDITS.md)"
+          } > notes.md
+          gh release edit opening-book --notes-file notes.md

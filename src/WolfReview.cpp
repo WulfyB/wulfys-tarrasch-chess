@@ -327,7 +327,10 @@ public:
             op->SetFont(op->GetFont().Bold().Scaled(1.1f));
             op->SetForegroundColour(kBookColour.ChangeLightness(70));
             op->SetToolTip("(T) = reached by a different move order than the textbook line\n"
-                           "(O) = left the book and came back into it\n\nBook: " + wxString::FromUTF8(rep.bookVersion.c_str()));
+                           "(O) = left the book and came back into it\n\nBook: " + wxString::FromUTF8(rep.bookVersion.c_str()) +
+                           "\n\nBuilt from The Week in Chess by Mark Crowther (theweekinchess.com),\n"
+                           "the Lichess Elite Database by nikonoel (database.nikonoel.fr)\n"
+                           "and lichess-org/chess-openings (opening names, CC0).");
             top->Add(op, 0, wxLEFT | wxRIGHT, 10);
             wxStaticText *od = new wxStaticText(this, wxID_ANY, wxString::FromUTF8(rep.opening.details(numbered).c_str()));
             od->SetForegroundColour(wxColour(90, 90, 90));

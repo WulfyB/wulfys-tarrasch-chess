@@ -97,8 +97,9 @@ move orders, so transpositions are recognised.
 | [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0, copy in `book/lichess`) | 3,865 named lines with ECO codes |
 
 The book holds only position fingerprints and how many games reached each one, never the games.
-Please consider supporting TWIC and the Lichess Elite Database. Both are free and maintained by
-one person each.
+Full credits, links and how each source is used: [book/CREDITS.md](book/CREDITS.md). Please consider
+supporting The Week in Chess (Mark Crowther) and the Lichess Elite Database (nikonoel). Both are
+free and each is maintained by one person.
 
 **In a review:**
 - Book moves show as **Book**. They are not judged and don't count toward accuracy, average loss,
