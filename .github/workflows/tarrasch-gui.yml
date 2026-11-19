@@ -20,13 +20,25 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wxWidgets
-          key: wx-3.1.7-v143-win32-release-staticcrt-v1
+          key: wx-3.1.7-v143-win32-release-staticcrt-v2
 
       - name: Get wxWidgets 3.1.7
         if: steps.wxcache.outputs.cache-hit != 'true'
         run: git clone --depth 1 --branch v3.1.7 --recurse-submodules --shallow-submodules https://github.com/wxWidgets/wxWidgets.git wxWidgets
 
       - uses: microsoft/setup-msbuild@v2
+
+      - name: Switch wxWidgets projects to the static C runtime
+        if: steps.wxcache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Get-ChildItem wxWidgets/build/msw -Filter *.vcxproj | ForEach-Object {
+            (Get-Content $_.FullName -Raw) -replace 'MultiThreadedDLL','MultiThreaded' -replace 'MultiThreadedDebugDLL','MultiThreadedDebug' | Set-Content $_.FullName -NoNewline
+          }
+          Get-ChildItem wxWidgets/build/msw -Filter *.props | ForEach-Object {
+            (Get-Content $_.FullName -Raw) -replace 'MultiThreadedDLL','MultiThreaded' -replace 'MultiThreadedDebugDLL','MultiThreadedDebug' | Set-Content $_.FullName -NoNewline
+          }
+          Select-String -Path wxWidgets/build/msw/*.vcxproj,wxWidgets/build/msw/*.props -Pattern 'RuntimeLibrary' | Select-Object -First 5
 
       - name: Build wxWidgets (static libs, static runtime)
         if: steps.wxcache.outputs.cache-hit != 'true'
