@@ -31,8 +31,8 @@ on:
         description: 'Both players at least this rating'
         default: '2200'
       twic_first:
-        description: 'First TWIC issue for a fresh tally (210 = Nov 1998)'
-        default: '210'
+        description: 'First TWIC issue for a fresh tally (920 = Aug 2012, the oldest one online)'
+        default: '920'
       elite_first:
         description: 'First Lichess Elite month for a fresh tally (YYYY-MM)'
         default: '2024-12'
@@ -56,7 +56,7 @@ jobs:
       MIN_GAMES: ${{ github.event.inputs.min_games || '5' }}
       MAX_PLY: ${{ github.event.inputs.max_ply || '40' }}
       MIN_ELO: ${{ github.event.inputs.min_elo || '2200' }}
-      TWIC_FIRST: ${{ github.event.inputs.twic_first || '210' }}
+      TWIC_FIRST: ${{ github.event.inputs.twic_first || '920' }}
       ELITE_FIRST: ${{ github.event.inputs.elite_first || '2024-12' }}
       FRESH: ${{ github.event.inputs.fresh || 'no' }}
       UA: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) WolfBook/1.0 (+https://github.com/${{ github.repository }})'
