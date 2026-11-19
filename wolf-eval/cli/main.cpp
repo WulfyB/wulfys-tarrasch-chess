@@ -98,12 +98,13 @@ static void printReport(const GameReport &r) {
                     judgementName(m.judgement), m.isBest ? "" : "");
     }
     auto line = [](const char *side, const std::string &name, const PlayerStats &p) {
-        std::printf("\n  %-5s %-20s accuracy %5.1f%%   avg loss %5.1f cp   best moves %d/%d   inaccuracies %d  mistakes %d  blunders %d",
-                    side, name.c_str(), p.accuracy, p.acpl, p.best, p.moves, p.inaccuracies, p.mistakes, p.blunders);
+        std::printf("\n  %s: %s\n", side, name.c_str());
+        std::printf("    Accuracy %.1f%%   avg loss %.1f cp   best moves %d/%d\n", p.accuracy, p.acpl, p.best, p.moves);
+        std::printf("    Inaccuracies %d   Mistakes %d   Blunders %d\n", p.inaccuracies, p.mistakes, p.blunders);
     };
     line("White", r.white, r.whiteStats);
     line("Black", r.black, r.blackStats);
-    std::printf("\n\n");
+    std::printf("\n");
 }
 
 int main(int argc, char **argv) {
