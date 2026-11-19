@@ -78,3 +78,52 @@ Like with like: accuracy and Elo numbers from different depths, methods or engin
 comparable, so every average the app shows uses only rows with the same depth, method and
 engine. Reviewing the same game again with the same setup replaces its old rows. A different
 depth adds a separate set of rows, so you can compare them.
+
+## Opening book
+
+Reviews use an opening book so known theory isn't punished, and so every game gets an opening
+name. The book is **`WolfBook.bin`**. Put it in Tarrasch's documents folder (next to
+`Tarrasch.ini`) or next to `Tarrasch.exe`. The Tarrasch build from GitHub Actions already includes
+the newest one, which is always on the [`opening-book` release](../../releases/tag/opening-book).
+
+**What counts as book:** any position that at least 5 strong games reached in their first 20
+moves (both players 2200+), plus every position on a named line. The book stores positions, not
+move orders, so transpositions are recognised.
+
+| Source | What it gives |
+|---|---|
+| [The Week in Chess](https://theweekinchess.com) (issues 920 onward, Aug 2012-now) | over-the-board games of strong players, weekly |
+| [Lichess Elite Database](https://database.nikonoel.fr) | online games, 2400+ vs 2200+, no bullet |
+| [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0, copy in `book/lichess`) | 3,865 named lines with ECO codes |
+
+The book holds only position fingerprints and how many games reached each one, never the games.
+Please consider supporting TWIC and the Lichess Elite Database. Both are free and maintained by
+one person each.
+
+**In a review:**
+- Book moves show as **Book**. They are not judged and don't count toward accuracy, average loss,
+  or mistake counts, so playing old theory never costs you.
+- The opening is the deepest named position the game reached, for example
+  `D58 Queen's Gambit Declined: Tartakower Defense (T)`.
+- **(T)** (transposition): that position was reached by a different move order than its textbook
+  line. The review says which opening it transposed from.
+- **(O)** (out of book in between): the game left the book and later came back into a book
+  position. Either the players found a real transposition, or the book is missing a line.
+  Tarrasch shows **Add to my book**, which appends the line to `WolfReview my book.tsv`, and
+  **Rerun review**. Every (O) game is also logged to `WolfReview book gaps.tsv`, so missing
+  lines can be folded into the shared book.
+
+**Your own lines:** `WolfReview my book.tsv` (next to `WolfReview.ini`) uses the same three
+columns as the Lichess files (`ECO <tab> name <tab> 1. d4 d5 2. c4 ...`). Every position on each
+line counts as book, and the last one gets the name.
+
+**Keeping it updated:** `.github/workflows/opening-book.yml` runs on the 3rd of every month (from
+the default branch). It downloads only the TWIC issues and Elite months that are new since the
+last run, adds them to the saved tally (`WolfBook-counts.cnt` on the release), refreshes the
+opening names, rebuilds `WolfBook.bin` and publishes it. You can also run it by hand from the
+Actions tab, with options for the thresholds or for a fresh start.
+
+**Tools:** `wolf-book` builds and inspects books:
+- `wolf-book info WolfBook.bin` shows the version and size.
+- `wolf-book name WolfBook.bin 1.c4 e6 2.Nc3 d5 3.d4` names a line and shows which moves are book.
+- `wolf-eval --book FILE` / `--no-book` control the book from the command line.
