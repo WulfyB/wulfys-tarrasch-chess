@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 project(wolf_eval CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Static MSVC runtime for every target, so wolf-eval.exe is a single file with no DLLs.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # Tarrasch's chess rules library lives next door in ../src
 set(TARRASCH_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
@@ -19,9 +21,6 @@ endif()
 
 add_executable(wolf-eval cli/main.cpp)
 target_link_libraries(wolf-eval wolfcore)
-if (MSVC)
-    set_property(TARGET wolf-eval wolfcore PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")  # single .exe, no DLLs
-endif()
 
 enable_testing()
 add_executable(wolf-tests tests/test_main.cpp)
