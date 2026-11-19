@@ -10,6 +10,7 @@
 #include "elo.h"
 #include "report.h"
 #include "history.h"
+#include "opening.h"
 #include <cstdio>
 #include "pgn.h"
 #include "thc.h"
@@ -181,7 +182,87 @@ static void testHistory() {
     CHECK(summarizePlayer(all, "Wulfy, The", likeDeep, "").games == 1);
     HistoryRow likeOther = like; likeOther.engine = "Komodo";
     CHECK(summarizePlayer(all, "Wulfy, The", likeOther, "").games == 0);
+    GameReport op = r; op.opening.known = true; op.opening.eco = "D37"; op.opening.name = "Queen's Gambit Declined, Three Knights";
+    op.opening.transposed = true; op.whiteStats.bookMoves = 6;
+    CHECK(recordHistory(csv, historyRows(op, "op1", "2026-11-19 18:00"), err));
+    std::vector<HistoryRow> withOp = readHistory(csv);
+    CHECK(withOp.back().opening == "Queen's Gambit Declined, Three Knights" && withOp.back().transposed &&
+          !withOp.back().outOfBookGap && withOp[withOp.size() - 2].bookMoves == 6);
     std::remove(ini.c_str()); std::remove(csv.c_str());
+}
+
+
+static std::vector<std::string> toks(const char *s) {
+    std::vector<std::string> v; std::string t; for (const char *p = s;; ++p) { if (*p == ' ' || !*p) { if (!t.empty()) v.push_back(t); t.clear(); if (!*p) break; } else t += *p; } return v;
+}
+
+static void testOpening(const char *lichessDir) {
+    // en passant squares only count when a capture is possible
+    CHECK(positionKey("rnbqkbnr/pppp1ppp/4p3/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq d3 0 2") ==
+          positionKey("rnbqkbnr/pppp1ppp/4p3/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2"));
+    CHECK(positionKey("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3") !=
+          positionKey("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3"));
+
+    // Small hand-made book: gap + transposition
+    OpeningBook small;
+    CHECK(small.addNamedLine("D37", "Test QGD", "1. d4 d5 2. c4 e6 3. Nc3 Nf6"));
+    OpeningInfo g = classifyOpening(small, "", toks("d4 Nf6 c4 e6 Nc3 d5 Bg5"));
+    CHECK(g.known && g.name == "Test QGD" && g.transposed && g.gap);
+    CHECK(g.bookMove[0] && !g.bookMove[1] && !g.bookMove[4] && g.bookMove[5] && !g.bookMove[6]);
+    CHECK(g.gapFirstPly == 2 && g.gapLastPly == 5 && g.reentryPly == 6 && g.leftBookPly == 7);
+    CHECK(g.label() == "D37 Test QGD (T) (O)");
+    CHECK(gapTsvLine(g, toks("d4 Nf6 c4 e6 Nc3 d5 Bg5")) == "D37\tTest QGD\t1. d4 Nf6 2. c4 e6 3. Nc3 d5");
+    OpeningInfo straight = classifyOpening(small, "", toks("d4 d5 c4 e6 Nc3 Nf6"));
+    CHECK(straight.known && !straight.transposed && !straight.gap && straight.leftBookPly == 0);
+
+    // Real names from Lichess's list
+    OpeningBook book;
+    std::string err;
+    int lines = 0;
+    for (const char *f : {"a", "b", "c", "d", "e"})
+        lines += book.addTsvFile(std::string(lichessDir) + "/" + f + ".tsv", err);
+    CHECK(lines > 3500);
+    CHECK(book.namedLines() > 3000 && book.positions() > 7000);
+    OpeningInfo ruy = classifyOpening(book, "", toks("e4 e5 Nf3 Nc6 Bb5"));
+    CHECK(ruy.known && ruy.eco == "C60" && ruy.name.find("Ruy Lopez") == 0 && !ruy.transposed && !ruy.gap);
+    OpeningInfo eng = classifyOpening(book, "", toks("c4 e6 Nc3 d5 d4 Nf6"));
+    CHECK(eng.known && eng.name.find("Queen's Gambit Declined") == 0 && eng.transposed);
+    CHECK(eng.viaName.find("English") == 0);
+    std::printf("  e.g. %s  |  %s\n", eng.label().c_str(), eng.details(toks("1.c4 1...e6 2.Nc3 2...d5 3.d4 3...Nf6")).c_str());
+    OpeningInfo none = classifyOpening(book, "8/8/8/4k3/8/8/8/6QK w - - 0 1", toks("Qg5+"));
+    CHECK(!none.known && none.bookPlies == 0);
+
+    // Save / load
+    book.version = "test";
+    std::vector<std::pair<uint64_t, uint32_t>> cs = {{positionKey("8/8/8/8/8/8/8/K6k w - - 0 1"), 7}};
+    book.setCounts(cs);
+    CHECK(book.count(cs[0].first) == 7);
+    CHECK(book.save("wolf_test_book.bin", err));
+    OpeningBook back;
+    CHECK(back.load("wolf_test_book.bin", err) && back.version == "test");
+    CHECK(back.positions() == book.positions() && back.namedLines() == book.namedLines());
+    CHECK(back.count(cs[0].first) == 7);
+    OpeningInfo eng2 = classifyOpening(back, "", toks("c4 e6 Nc3 d5 d4 Nf6"));
+    CHECK(eng2.label() == eng.label());
+    std::remove("wolf_test_book.bin");
+}
+
+static void testBookScoring() {
+    // 1.e4 (book) e5 (book) 2.Qh5 (not book, loses a lot) : book moves aren't judged or counted
+    GameReport r;
+    r.evals = {Score::Cp(20), Score::Cp(30), Score::Cp(25), Score::Cp(-300)};
+    for (int i = 0; i < 3; ++i) {
+        MoveReport m; m.ply = i + 1; m.white = i % 2 == 0; m.moveNumber = i / 2 + 1;
+        m.before = r.evals[i]; m.after = r.evals[i + 1]; m.book = i < 2;
+        r.moves.push_back(m);
+    }
+    r.moves[1].before = Score::Cp(30); r.moves[1].after = Score::Cp(900);   // a "bad" book move: still not punished
+    scoreGame(r, true);
+    CHECK(r.moves[1].judgement == Judgement::None);
+    CHECK(r.whiteStats.bookMoves == 1 && r.blackStats.bookMoves == 1);
+    CHECK(r.whiteStats.moves == 1 && r.blackStats.moves == 0 && !r.blackStats.hasAccuracy);
+    CHECK(r.moves[2].judgement == Judgement::Blunder && r.whiteStats.blunders == 1);
+    CHECK(formatReport(r).find("Book") != std::string::npos);
 }
 
 int main(int argc, char **argv) {
@@ -194,7 +275,8 @@ int main(int argc, char **argv) {
                                 g.hasBlack ? std::to_string(g.black).c_str() : "none");
         return 0;
     }
-    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory();
+    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring();
+    testOpening(argc > 1 ? argv[1] : WOLF_LICHESS_DIR);
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

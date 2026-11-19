@@ -19,6 +19,7 @@ void scoreGame(GameReport &rep, bool whiteStarts) {
     PlayerStats *ps[2] = {&rep.whiteStats, &rep.blackStats};
     long cplSum[2] = {0, 0};
     std::vector<double> acc;
+    std::vector<bool> skip;
     for (MoveReport &m : rep.moves) {
         int b = m.before.ceiledCp(), a = m.after.ceiledCp();
         int sign = m.white ? 1 : -1;
@@ -27,7 +28,13 @@ void scoreGame(GameReport &rep, bool whiteStarts) {
         m.accuracy = m.white ? moveAccuracy(wb, wa) : moveAccuracy(100 - wb, 100 - wa);
         m.judgement = judge(b, a, m.white);
         acc.push_back(m.accuracy);
+        skip.push_back(m.book);
         PlayerStats &p = *ps[m.white ? 0 : 1];
+        if (m.book) {             // theory: shown, never punished, not counted
+            m.judgement = Judgement::None;
+            p.bookMoves++;
+            continue;
+        }
         p.moves++;
         if (m.isBest) p.best++;
         if (m.judgement == Judgement::Inaccuracy) p.inaccuracies++;
@@ -38,7 +45,7 @@ void scoreGame(GameReport &rep, bool whiteStarts) {
     for (int s = 0; s < 2; ++s)
         if (ps[s]->moves) ps[s]->acpl = double(cplSum[s]) / ps[s]->moves;
 
-    GameAccuracy g = gameAccuracy(cps, whiteStarts, acc);
+    GameAccuracy g = gameAccuracy(cps, whiteStarts, acc, skip);
     rep.whiteStats.hasAccuracy = g.hasWhite; rep.whiteStats.accuracy = g.white;
     rep.blackStats.hasAccuracy = g.hasBlack; rep.blackStats.accuracy = g.black;
 }
@@ -77,6 +84,10 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
         fens.push_back(r.ForsythPublish());
     }
     if (played.empty()) { rep.error = "The game has no moves."; return rep; }
+    if (opt.book) {
+        rep.opening = classifyOpening(*opt.book, fen, game.sanMoves);
+        rep.bookVersion = opt.book->version;
+    }
 
     rep.method = opt.method;
     engine.newGame();
@@ -134,6 +145,10 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
                 m.bestSan = bm.NaturalOut(&r);
                 m.isBest = (bm == played[i]);
             }
+        }
+        if (i < rep.opening.bookMove.size()) {
+            m.book = rep.opening.bookMove[i];
+            m.bookGames = rep.opening.games[i];
         }
         rep.moves.push_back(m);
         r.PlayMove(played[i]);

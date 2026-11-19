@@ -86,7 +86,8 @@ const char *kColumns[] = {
     "reviewed_at", "game_id", "game_date", "event", "white", "black", "result",
     "player", "color", "opponent", "accuracy", "acpl", "moves", "best",
     "inaccuracies", "mistakes", "blunders", "est_elo", "elo_low", "elo_high",
-    "depth", "method", "engine"
+    "depth", "method", "engine",
+    "eco", "opening", "transposed", "out_of_book_gap", "book_moves", "book_version"
 };
 const int kNumColumns = (int)(sizeof kColumns / sizeof kColumns[0]);
 
@@ -97,7 +98,9 @@ std::vector<std::string> toFields(const HistoryRow &r)
              std::to_string(r.moves), std::to_string(r.best), std::to_string(r.inaccuracies),
              std::to_string(r.mistakes), std::to_string(r.blunders), std::to_string(r.estElo),
              std::to_string(r.eloLow), std::to_string(r.eloHigh), std::to_string(r.depth),
-             r.method, r.engine };
+             r.method, r.engine,
+             r.eco, r.opening, r.transposed ? "yes" : "no", r.outOfBookGap ? "yes" : "no",
+             std::to_string(r.bookMoves), r.bookVersion };
 }
 
 bool sameKey(const HistoryRow &a, const HistoryRow &b)
@@ -215,6 +218,12 @@ std::vector<HistoryRow> historyRows(const GameReport &rep, const std::string &ga
         r.depth = rep.depth;
         r.method = methodKey(rep.method);
         r.engine = rep.engineName;
+        r.eco = rep.opening.known ? rep.opening.eco : std::string();
+        r.opening = rep.opening.known ? rep.opening.name : std::string();
+        r.transposed = rep.opening.transposed;
+        r.outOfBookGap = rep.opening.gap;
+        r.bookMoves = p.bookMoves;
+        r.bookVersion = rep.bookVersion;
         rows.push_back(r);
     }
     return rows;
@@ -248,6 +257,8 @@ std::vector<HistoryRow> readHistory(const std::string &csvPath)
         r.mistakes = (int)num(15); r.blunders = (int)num(16);
         r.estElo = (int)num(17); r.eloLow = (int)num(18); r.eloHigh = (int)num(19);
         r.depth = (int)num(20); r.method = get(21); r.engine = get(22);
+        r.eco = get(23); r.opening = get(24); r.transposed = get(25) == "yes"; r.outOfBookGap = get(26) == "yes";
+        r.bookMoves = (int)num(27); r.bookVersion = get(28);
         if (r.gameId.empty() || r.depth <= 0)
             continue;   // not one of ours (or a blank line)
         rows.push_back(r);

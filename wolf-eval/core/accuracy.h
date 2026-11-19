@@ -57,6 +57,10 @@ GameAccuracy gameAccuracy(const std::vector<int> &cps, bool whiteStarts);
 // Used by the "same root" method, where each move is judged against the best move from the
 // same position instead of against the next position's evaluation.
 GameAccuracy gameAccuracy(const std::vector<int> &cps, bool whiteStarts, const std::vector<double> &perMoveAccuracy);
+// Same, leaving out moves where skip[i] is true (book moves). The volatility weights still use
+// every position, so skipping a move doesn't change how the other moves are weighted.
+GameAccuracy gameAccuracy(const std::vector<int> &cps, bool whiteStarts, const std::vector<double> &perMoveAccuracy,
+                          const std::vector<bool> &skip);
 
 // Per-move accuracies in game order (one per move), using the same per-move formula.
 std::vector<double> moveAccuracies(const std::vector<int> &cps, bool whiteStarts);

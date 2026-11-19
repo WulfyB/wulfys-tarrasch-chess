@@ -6,6 +6,7 @@
 #include "accuracy.h"
 #include "pgn.h"
 #include "uci_engine.h"
+#include "opening.h"
 
 namespace wolf {
 
@@ -26,13 +27,16 @@ struct MoveReport {
     int         cpl = 0;          // centipawn loss for the mover (capped evals, >= 0)
     double      accuracy = 100;   // 0..100
     Judgement   judgement = Judgement::None;
+    bool        book = false;     // known theory: not judged, not counted in accuracy / loss
+    uint32_t    bookGames = 0;    // how many book games reached the position after it
 };
 
 struct PlayerStats {
     bool   hasAccuracy = false;
     double accuracy = 0;          // Lichess-style game accuracy
     double acpl = 0;              // average centipawn loss
-    int    moves = 0, best = 0, inaccuracies = 0, mistakes = 0, blunders = 0;
+    int    moves = 0, best = 0, inaccuracies = 0, mistakes = 0, blunders = 0;   // judged (non-book) moves
+    int    bookMoves = 0;
 };
 
 struct GameReport {
@@ -45,6 +49,8 @@ struct GameReport {
     std::vector<MoveReport> moves;
     std::vector<Score>      evals;   // every position incl. start, White POV
     PlayerStats whiteStats, blackStats;
+    OpeningInfo opening;          // filled when an opening book was given
+    std::string bookVersion;
 };
 
 struct AnalysisOptions {
@@ -53,6 +59,8 @@ struct AnalysisOptions {
     int movetimeMs = 0;            // if > 0, used instead of depth
     // Called after each position: (done, total). Return false to cancel.
     std::function<bool(int, int)> progress;
+    // Optional opening book: book moves are marked and not punished.
+    const OpeningBook *book = nullptr;
 };
 
 GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOptions &opt);

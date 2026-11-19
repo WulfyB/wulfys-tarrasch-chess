@@ -86,6 +86,11 @@ GameAccuracy gameAccuracy(const std::vector<int> &cps, bool whiteStarts) {
 }
 
 GameAccuracy gameAccuracy(const std::vector<int> &cps, bool whiteStarts, const std::vector<double> &perMoveAccuracy) {
+    return gameAccuracy(cps, whiteStarts, perMoveAccuracy, std::vector<bool>());
+}
+
+GameAccuracy gameAccuracy(const std::vector<int> &cps, bool whiteStarts, const std::vector<double> &perMoveAccuracy,
+                          const std::vector<bool> &skip) {
     GameAccuracy r;
     if (cps.size() < 2) return r;
 
@@ -112,6 +117,7 @@ GameAccuracy gameAccuracy(const std::vector<int> &cps, bool whiteStarts, const s
         double wsum = 0, wtot = 0, hsum = 0; int n = 0;
         for (size_t i = 0; i < acc.size() && i < windows.size(); ++i) {   // zip() stops at the shorter list
             if (moverWhite[i] != white) continue;
+            if (i < skip.size() && skip[i]) continue;
             double w = std::clamp(stdDev(windows[i]), 0.5, 12.0);
             wsum += acc[i] * w; wtot += w;
             hsum += 1.0 / std::max(1.0, acc[i]);

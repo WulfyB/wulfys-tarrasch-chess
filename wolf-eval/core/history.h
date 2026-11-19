@@ -43,6 +43,10 @@ struct HistoryRow {
     int         depth = 0;
     std::string method;           // methodKey()
     std::string engine;
+    std::string eco, opening;     // from the opening book (empty without one)
+    bool        transposed = false, outOfBookGap = false;   // (T) and (O)
+    int         bookMoves = 0;    // this player's book moves (not counted in accuracy)
+    std::string bookVersion;
 };
 
 std::string gameFingerprint(const PgnGame &g);
