@@ -1,0 +1,55 @@
+name: Wolf Eval
+
+on:
+  push:
+    branches: [wolf-eval]
+    paths: ['wolf-eval/**', 'src/thc.*', '.github/workflows/wolf-eval.yml']
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S wolf-eval -B wolf-eval/build -A x64
+
+      - name: Build
+        run: cmake --build wolf-eval/build --config Release
+
+      - name: Unit tests
+        run: wolf-eval/build/Release/wolf-tests.exe
+
+      - name: Lichess cross-check
+        run: python wolf-eval/tests/lichess_reference.py wolf-eval/build/Release/wolf-tests.exe 300
+
+      - name: Smoke test with a real Stockfish
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip -OutFile sf.zip
+          Expand-Archive sf.zip -DestinationPath sf
+          $exe = Get-ChildItem sf -Recurse -Filter *.exe | Select-Object -First 1
+          wolf-eval/build/Release/wolf-eval.exe --engine $exe.FullName --depth 14 wolf-eval/tests/games/opera.pgn
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item wolf-eval/build/Release/wolf-eval.exe out/
+          Copy-Item wolf-eval/README.md out/
+          Copy-Item wolf-eval/tests/games/opera.pgn out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wolf-eval-windows
+          path: out/
+
+  linux-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S wolf-eval -B wolf-eval/build -DCMAKE_BUILD_TYPE=Release && cmake --build wolf-eval/build -j
+      - run: wolf-eval/build/wolf-tests
+      - run: python3 wolf-eval/tests/lichess_reference.py wolf-eval/build/wolf-tests 300

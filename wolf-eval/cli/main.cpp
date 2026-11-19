@@ -10,11 +10,13 @@
 //     --json FILE       also write a JSON report
 //     --method M        "sameroot" (default: your move vs the best move from the same position)
 //                       or "lichess" (Lichess's exact before/after method)
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 #include "../core/analysis.h"
 #include "../core/pgn.h"
 #include "../core/uci_engine.h"
