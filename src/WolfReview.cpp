@@ -6,7 +6,9 @@
  *  comment naming the engine's choice.
  *  Uses the Wolf Eval core in ../wolf-eval/core (same code as wolf-eval.exe).
  ****************************************************************************/
+#ifndef _CRT_SECURE_NO_DEPRECATE
 #define _CRT_SECURE_NO_DEPRECATE
+#endif
 #include "wx/wx.h"
 #include "wx/progdlg.h"
 #include "Appdefs.h"
