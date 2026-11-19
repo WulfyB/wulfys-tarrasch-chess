@@ -1,9 +1,9 @@
 // wolf-eval: chess.com-style accuracy for a PGN game, using any UCI engine.
 //
 //   wolf-eval [options] game.pgn
-//     --engine PATH     UCI engine (default: first Stockfish found in Tarrasch's Engines folder)
-//     --depth N         search depth per position (default 18)
-//     --movetime MS     time per position instead of depth
+//     --engine PATH     UCI engine (default: the engine Tarrasch is set to use, from Tarrasch.ini)
+//     --depth N         search depth per position (default 30, max 40)
+//     --movetime MS     time per position instead of depth (max 60000)
 //     --game K          analyse only game K (1-based) of a multi-game PGN
 //     --threads N       engine threads (default 2)
 //     --hash MB         engine hash (default 128)
@@ -24,30 +24,75 @@
 namespace fs = std::filesystem;
 using namespace wolf;
 
-static std::string findTarraschStockfish() {
-    std::vector<fs::path> roots;
 #ifdef _WIN32
-    for (const char *env : {"ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"})
-        if (const char *v = std::getenv(env)) roots.push_back(fs::path(v) / "Tarrasch" / "Engines");
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#  include <shlobj.h>
+static fs::path documentsFolder() {
+    PWSTR p = nullptr;
+    fs::path out;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &p))) out = p;   // follows OneDrive redirection
+    if (p) CoTaskMemFree(p);
+    return out;
+}
 #endif
-    roots.push_back(fs::current_path() / "Engines");
+
+// Tarrasch keeps its settings in Tarrasch.ini (next to Tarrasch.exe for portable installs,
+// otherwise in Documents\Tarrasch). EngineExeFile= is the engine the user picked in Tarrasch.
+static std::vector<fs::path> tarraschDirs() {
+    std::vector<fs::path> dirs;
+#ifdef _WIN32
+    fs::path docs = documentsFolder();
+    if (!docs.empty()) dirs.push_back(docs / "Tarrasch");
+    for (const char *env : {"ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"})
+        if (const char *v = std::getenv(env)) dirs.push_back(fs::path(v) / "Tarrasch");
+#endif
+    dirs.push_back(fs::current_path());
+    return dirs;
+}
+
+static std::string engineFromTarraschIni(std::string &iniUsed) {
     std::error_code ec;
-    for (auto &root : roots) {
+    for (auto &dir : tarraschDirs()) {
+        fs::path ini = dir / "Tarrasch.ini";
+        std::ifstream f(ini);
+        if (!f) continue;
+        std::string line;
+        while (std::getline(f, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            const std::string key = "EngineExeFile=";
+            if (line.compare(0, key.size(), key) != 0) continue;
+            std::string v = line.substr(key.size()), path;
+            for (size_t i = 0; i < v.size(); ++i) {          // wxFileConfig escapes backslashes as "\\"
+                if (v[i] == '\\' && i + 1 < v.size() && v[i + 1] == '\\') ++i;
+                path += v[i];
+            }
+            if (path.size() >= 2 && path.front() == '"' && path.back() == '"') path = path.substr(1, path.size() - 2);
+            if (fs::is_regular_file(path, ec)) { iniUsed = ini.string(); return path; }
+        }
+    }
+    return "";
+}
+
+// Fallback: the most recently modified Stockfish in a Tarrasch Engines folder.
+static std::string newestEngineInTarrasch() {
+    std::error_code ec;
+    std::string best; fs::file_time_type bestTime{};
+    for (auto &dir : tarraschDirs()) {
+        fs::path root = dir / "Engines";
         if (!fs::is_directory(root, ec)) continue;
-        std::string best;
         for (auto &e : fs::recursive_directory_iterator(root, ec)) {
-            std::string name = e.path().filename().string();
-            std::string lower = name;
+            std::string lower = e.path().filename().string();
             for (char &c : lower) c = (char)std::tolower((unsigned char)c);
             if (lower.find("stockfish") == std::string::npos || !e.is_regular_file(ec)) continue;
 #ifdef _WIN32
             if (lower.size() < 4 || lower.substr(lower.size() - 4) != ".exe") continue;
 #endif
-            if (e.path().string() > best) best = e.path().string();   // highest version name wins
+            auto t = fs::last_write_time(e.path(), ec);
+            if (best.empty() || t > bestTime) { best = e.path().string(); bestTime = t; }
         }
-        if (!best.empty()) return best;
     }
-    return "";
+    return best;
 }
 
 static std::string jsonEscape(const std::string &s) {
@@ -110,6 +155,8 @@ static void printReport(const GameReport &r) {
 int main(int argc, char **argv) {
     std::string enginePath, pgnPath, jsonPath;
     AnalysisOptions opt;
+    opt.depth = 30;
+    const int MAX_DEPTH = 40, MAX_MOVETIME = 60000;
     int gameIndex = 0, threads = 2, hash = 128;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -130,12 +177,24 @@ int main(int argc, char **argv) {
             else if (m == "sameroot") opt.method = Method::SameRoot;
             else { std::fprintf(stderr, "--method must be sameroot or lichess\n"); return 2; }
         }
-        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N] [--movetime MS] [--game K] [--json FILE] game.pgn\n"); return 0; }
+        else if (a == "-h" || a == "--help") { std::printf("usage: wolf-eval [--engine PATH] [--depth N (default 30, max 40)] [--movetime MS] [--method sameroot|lichess] [--game K] [--json FILE] game.pgn\n"); return 0; }
         else pgnPath = a;
     }
     if (pgnPath.empty()) { std::fprintf(stderr, "usage: wolf-eval [options] game.pgn   (--help for options)\n"); return 2; }
-    if (enginePath.empty()) enginePath = findTarraschStockfish();
-    if (enginePath.empty()) { std::fprintf(stderr, "No engine found. Pass --engine PATH (e.g. Tarrasch's Engines\\stockfish*.exe).\n"); return 2; }
+    if (opt.depth < 1 || opt.depth > MAX_DEPTH) { std::fprintf(stderr, "--depth must be between 1 and %d.\n", MAX_DEPTH); return 2; }
+    if (opt.movetimeMs < 0 || opt.movetimeMs > MAX_MOVETIME) { std::fprintf(stderr, "--movetime must be at most %d ms.\n", MAX_MOVETIME); return 2; }
+    std::string engineSource = "--engine";
+    if (enginePath.empty()) {
+        std::string ini;
+        enginePath = engineFromTarraschIni(ini);
+        if (!enginePath.empty()) engineSource = "Tarrasch's setting (" + ini + ")";
+    }
+    if (enginePath.empty()) {
+        enginePath = newestEngineInTarrasch();
+        if (!enginePath.empty()) engineSource = "newest Stockfish in Tarrasch's Engines folder";
+    }
+    if (enginePath.empty()) { std::fprintf(stderr, "No engine found. Pass --engine PATH (e.g. your Stockfish .exe).\n"); return 2; }
+    std::fprintf(stderr, "Using engine %s\n  (from %s)\n", enginePath.c_str(), engineSource.c_str());
 
     std::string text;
     if (!readFile(pgnPath, text)) { std::fprintf(stderr, "Cannot read %s\n", pgnPath.c_str()); return 1; }

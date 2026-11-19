@@ -21,6 +21,9 @@ endif()
 
 add_executable(wolf-eval cli/main.cpp)
 target_link_libraries(wolf-eval wolfcore)
+if (WIN32)
+    target_link_libraries(wolf-eval shell32 ole32)   # SHGetKnownFolderPath (Documents folder)
+endif()
 
 enable_testing()
 add_executable(wolf-tests tests/test_main.cpp)
