@@ -1,0 +1,120 @@
+name: Wulfy's Tarrasch (GUI build)
+
+# Builds the whole Tarrasch app (wxWidgets GUI) on Windows, the same way the
+# Visual Studio project does locally: 32-bit Release, static wxWidgets 3.1,
+# static C runtime. Each run attaches a ready-to-run folder: Tarrasch.exe, Stockfish,
+# the opening books and a Tarrasch.ini that keeps everything in that folder.
+on:
+  push:
+    branches: [wolf-eval, wulfys-tarrasch]
+    paths: ['src/**', 'wolf-eval/core/**', 'wolf-eval/book/**', 'install/**', 'TarraschVS2019.vcxproj', '.github/workflows/tarrasch-gui.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache wxWidgets build
+        id: wxcache
+        uses: actions/cache@v4
+        with:
+          path: wxWidgets
+          key: wx-3.1.7-v143-win32-release-staticcrt-v2
+
+      - name: Get wxWidgets 3.1.7
+        if: steps.wxcache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch v3.1.7 --recurse-submodules --shallow-submodules https://github.com/wxWidgets/wxWidgets.git wxWidgets
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Switch wxWidgets projects to the static C runtime
+        if: steps.wxcache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Get-ChildItem wxWidgets/build/msw -Filter *.vcxproj | ForEach-Object {
+            (Get-Content $_.FullName -Raw) -replace 'MultiThreadedDLL','MultiThreaded' -replace 'MultiThreadedDebugDLL','MultiThreadedDebug' | Set-Content $_.FullName -NoNewline
+          }
+          Get-ChildItem wxWidgets/build/msw -Filter *.props | ForEach-Object {
+            (Get-Content $_.FullName -Raw) -replace 'MultiThreadedDLL','MultiThreaded' -replace 'MultiThreadedDebugDLL','MultiThreadedDebug' | Set-Content $_.FullName -NoNewline
+          }
+          Select-String -Path wxWidgets/build/msw/*.vcxproj,wxWidgets/build/msw/*.props -Pattern 'RuntimeLibrary' | Select-Object -First 5
+
+      - name: Build wxWidgets (static libs, static runtime)
+        if: steps.wxcache.outputs.cache-hit != 'true'
+        working-directory: wxWidgets/build/msw
+        run: msbuild wx_vc16.sln /m /v:minimal /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:wxRuntimeLibs=static
+
+      - name: Provide setup.h where the project looks for it
+        shell: pwsh
+        run: |
+          if (!(Test-Path wxWidgets/lib/vc_lib/mswud)) { Copy-Item -Recurse wxWidgets/lib/vc_lib/mswu wxWidgets/lib/vc_lib/mswud }
+          Get-ChildItem wxWidgets/lib/vc_lib -Filter *.lib | Select-Object -ExpandProperty Name
+
+      - name: Build Tarrasch
+        run: msbuild TarraschVS2019.vcxproj /m /v:minimal /p:Configuration=Release /p:Platform=Win32
+
+      - name: Package a ready-to-run Wulfy's Tarrasch folder
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = Get-ChildItem vc_mswu -Recurse -Filter *.exe | Select-Object -First 1
+          "Built: $($exe.FullName)"
+          $out = "pkg/WulfysTarrasch"
+          New-Item -ItemType Directory -Force "$out/Engines" | Out-Null
+          Copy-Item $exe.FullName "$out/Tarrasch.exe"
+          # A Tarrasch.ini next to the exe makes Tarrasch keep everything in this folder (portable)
+          Copy-Item install/Tarrasch.ini "$out/Tarrasch.ini"
+          Copy-Item install/book.pgn "$out/book.pgn"
+          Copy-Item install/licence.txt "$out/Tarrasch licence.txt"
+          Copy-Item wolf-eval/book/CREDITS.md "$out/Opening book credits.md"
+          Copy-Item wolf-eval/README.md "$out/Wolf Eval README.md"
+
+          # Stockfish, under the file name Tarrasch uses for its default engine
+          $tag = gh release view -R official-stockfish/Stockfish --json tagName --jq .tagName
+          $assets = gh release view -R official-stockfish/Stockfish --json assets --jq '.assets[].name'
+          $pick = ($assets | Where-Object { $_ -match 'windows-x86-64-sse41-popcnt' } | Select-Object -First 1)
+          if (-not $pick) { $pick = ($assets | Where-Object { $_ -match 'windows' -and $_ -match 'x86-64' } | Select-Object -First 1) }
+          "Stockfish $tag : $pick"
+          gh release download -R official-stockfish/Stockfish $tag --pattern $pick -D sfdl
+          $file = Get-ChildItem sfdl | Select-Object -First 1
+          if ($file.Extension -eq '.zip') { Expand-Archive $file.FullName -DestinationPath sf } else { New-Item -ItemType Directory sf | Out-Null; Copy-Item $file.FullName sf/ }
+          $sf = Get-ChildItem sf -Recurse -Filter *.exe | Select-Object -First 1
+          Copy-Item $sf.FullName "$out/Engines/stockfish-windows-x86-64-sse41-popcnt.exe"
+          $lic = Get-ChildItem sf -Recurse | Where-Object { $_.Name -match '^(Copying|COPYING|LICENSE)' } | Select-Object -First 1
+          if ($lic) { Copy-Item $lic.FullName "$out/Engines/Stockfish licence (GPLv3).txt" }
+          "Stockfish $tag (https://stockfishchess.org). Source code: https://github.com/official-stockfish/Stockfish/tree/$tag" | Set-Content "$out/Engines/Stockfish source.txt"
+
+          # The newest opening book
+          gh release download opening-book -p WolfBook.bin -D $out
+          if (-not (Test-Path "$out/WolfBook.bin")) { "No opening book published yet" }
+
+          @"
+          Wulfy's Tarrasch
+          ================
+          Unzip anywhere and run Tarrasch.exe. Nothing needs installing: settings,
+          review history and your own book lines are all kept in this folder.
+
+          Game review: load or enter a game, then Commands > Game review (accuracy)...
+
+          In this folder:
+            Tarrasch.exe        Tarrasch Chess GUI by Bill Forster, with Wolf Eval game review
+            Engines\            Stockfish (GPLv3; see the licence and source files there)
+            WolfBook.bin        opening book for game reviews (credits: Opening book credits.md)
+            book.pgn            Tarrasch's own classic opening book
+            Tarrasch.ini        keeps Tarrasch's settings in this folder
+
+          Created by the review: WolfReview.ini (settings), WolfReview history.csv,
+          WolfReview my book.tsv (your own book lines), WolfReview book gaps.tsv.
+
+          Source: https://github.com/${{ github.repository }}
+          "@ -replace '(?m)^          ', '' | Set-Content "$out/README.txt"
+          Get-ChildItem $out -Recurse | Select-Object FullName, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WulfysTarrasch
+          path: pkg/
+          if-no-files-found: error

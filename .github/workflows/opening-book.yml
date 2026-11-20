@@ -1,0 +1,167 @@
+name: Opening book (monthly)
+
+# Rebuilds WolfBook.bin, the opening book used by Wolf Eval / Wulfy's Tarrasch, and publishes
+# it on the "opening-book" release.
+#
+# Sources:
+#   * The Week in Chess (theweekinchess.com): weekly over-the-board games of strong players
+#   * Lichess Elite Database (database.nikonoel.fr): lichess games, 2400+ vs 2200+, no bullet
+#   * lichess-org/chess-openings (CC0): opening names / ECO codes
+# The book holds only position fingerprints and how many games reached them, never the games.
+#
+# A running tally (WolfBook-counts.cnt + sources.txt on the release) means each run only
+# downloads what is new since the last one.
+on:
+  schedule:
+    - cron: '17 7 3 * *'      # 07:17 UTC on the 3rd of every month
+  # Until wolf-eval is merged into master (schedules only run from the default branch),
+  # changes to the book code on wolf-eval also start a build.
+  push:
+    branches: [wolf-eval, wulfys-tarrasch]
+    paths: ['.github/workflows/opening-book.yml', 'wolf-eval/cli/book_main.cpp', 'wolf-eval/core/opening.*']
+  workflow_dispatch:
+    inputs:
+      min_games:
+        description: 'A position is book if at least this many strong games reached it'
+        default: '5'
+      max_ply:
+        description: 'How deep to count (plies; 40 = 20 moves each)'
+        default: '40'
+      min_elo:
+        description: 'Both players at least this rating'
+        default: '2200'
+      twic_first:
+        description: 'First TWIC issue for a fresh tally (920 = Aug 2012, the oldest one online)'
+        default: '920'
+      elite_first:
+        description: 'First Lichess Elite month for a fresh tally (YYYY-MM)'
+        default: '2024-12'
+      fresh:
+        description: 'Ignore the saved tally and start again (yes/no)'
+        default: 'no'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: opening-book
+  cancel-in-progress: false
+
+jobs:
+  book:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MIN_GAMES: ${{ github.event.inputs.min_games || '5' }}
+      MAX_PLY: ${{ github.event.inputs.max_ply || '40' }}
+      MIN_ELO: ${{ github.event.inputs.min_elo || '2200' }}
+      TWIC_FIRST: ${{ github.event.inputs.twic_first || '920' }}
+      ELITE_FIRST: ${{ github.event.inputs.elite_first || '2024-12' }}
+      FRESH: ${{ github.event.inputs.fresh || 'no' }}
+      UA: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) WolfBook/1.0 (+https://github.com/${{ github.repository }})'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wolf-book
+        run: |
+          cmake -S wolf-eval -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j4 --target wolf-book
+
+      - name: Newest opening names (lichess-org/chess-openings)
+        run: |
+          git clone --depth 1 https://github.com/lichess-org/chess-openings names
+          echo "NAMES_REV=$(git -C names rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Saved tally from the last run
+        run: |
+          mkdir -p state
+          if [ "$FRESH" != "yes" ] && gh release view opening-book >/dev/null 2>&1; then
+            gh release download opening-book -D state -p 'WolfBook-counts.cnt' -p 'sources.txt' || true
+          fi
+          touch state/sources.txt
+          ls -la state
+
+      - name: Download new TWIC issues
+        run: |
+          mkdir -p dl
+          last=$(grep -oP '^twic \K[0-9]+' state/sources.txt | sort -n | tail -1 || true)
+          start=${last:+$((last + 1))}
+          start=${start:-$TWIC_FIRST}
+          misses=0; n=$start; got=0
+          while [ $misses -lt 6 ]; do
+            if curl -fsSL -A "$UA" --retry 2 -o dl/twic$n.zip "https://theweekinchess.com/zips/twic${n}g.zip" && unzip -tq dl/twic$n.zip >/dev/null 2>&1; then
+              echo "twic $n" >> new_sources.txt; misses=0; got=$((got + 1))
+            else
+              rm -f dl/twic$n.zip; misses=$((misses + 1))
+            fi
+            n=$((n + 1)); sleep 1
+          done
+          echo "TWIC: $got new issues from $start"
+          touch new_sources.txt
+
+      - name: Download new Lichess Elite months
+        run: |
+          last=$(grep -oP '^elite \K[0-9-]+' state/sources.txt | sort | tail -1 || true)
+          if [ -n "$last" ]; then m=$(date -d "$last-01 +1 month" +%Y-%m); else m=$ELITE_FIRST; fi
+          now=$(date +%Y-%m)
+          while [ "$m" \< "$now" ]; do
+            if curl -fsSL -A "$UA" --retry 2 -o dl/elite_$m.zip "https://database.nikonoel.fr/lichess_elite_$m.zip" && unzip -tq dl/elite_$m.zip >/dev/null 2>&1; then
+              echo "elite $m" >> new_sources.txt; echo "Elite $m: ok"
+            else
+              rm -f dl/elite_$m.zip; echo "Elite $m: not published (yet)"
+            fi
+            m=$(date -d "$m-01 +1 month" +%Y-%m)
+          done
+          du -sh dl
+
+      - name: Count positions in the new games
+        run: |
+          mkdir -p tmp
+          if ls dl/*.zip >/dev/null 2>&1; then
+            for z in dl/*.zip; do unzip -p "$z" 2>/dev/null || true; echo; done \
+              | ./build/wolf-book count --out new.cnt --min-elo "$MIN_ELO" --max-ply "$MAX_PLY" --tmp tmp -
+          fi
+          rm -rf dl
+
+      - name: Merge with the saved tally and build the book
+        run: |
+          parts=""
+          [ -f state/WolfBook-counts.cnt ] && parts="state/WolfBook-counts.cnt"
+          [ -f new.cnt ] && parts="$parts new.cnt"
+          if [ -z "$parts" ]; then echo "Nothing to build from"; exit 1; fi
+          ./build/wolf-book merge --out WolfBook-counts.cnt --keep-min 2 $parts
+          cat state/sources.txt new_sources.txt | sort -u > sources.txt
+          twic=$(grep -oP '^twic \K[0-9]+' sources.txt | sort -n | sed -n '1p;$p' | paste -sd- - || true)
+          elite=$(grep -oP '^elite \K[0-9-]+' sources.txt | sort | sed -n '1p;$p' | paste -sd' ' - | sed 's/ /../' || true)
+          ver="$(date +%Y-%m-%d): TWIC ${twic:-none}, Lichess Elite ${elite:-none}, names $NAMES_REV, min $MIN_GAMES games, $MAX_PLY plies, ${MIN_ELO}+"
+          ./build/wolf-book build --counts WolfBook-counts.cnt --names names --min-games "$MIN_GAMES" --version "$ver" --out WolfBook.bin
+          ./build/wolf-book info WolfBook.bin
+          {
+            echo "## Opening book"; echo; echo "\`$ver\`"; echo; echo '```'
+            ./build/wolf-book info WolfBook.bin; ./build/wolf-book stats WolfBook-counts.cnt
+            ./build/wolf-book name WolfBook.bin 1.c4 e6 2.Nc3 d5 3.d4 Nf6 4.Bg5 Be7 5.e3 O-O 6.Nf3 h6 7.Bh4 b6 | head -2
+            ./build/wolf-book name WolfBook.bin 1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 a6 6.Be3 e5 7.Nb3 Be6 8.f3 Be7 9.Qd2 O-O 10.O-O-O Nbd7 11.g4 b5 | head -2
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+          echo "BOOK_VERSION=$ver" >> $GITHUB_ENV
+
+      - name: Publish on the opening-book release
+        run: |
+          if ! gh release view opening-book >/dev/null 2>&1; then
+            gh release create opening-book --title "Opening book" --notes "WolfBook.bin for Wolf Eval / Wulfy's Tarrasch." --latest=false
+          fi
+          gh release upload opening-book WolfBook.bin WolfBook-counts.cnt sources.txt --clobber
+          {
+            echo "**WolfBook.bin**: the opening book for Wolf Eval / Wulfy's Tarrasch. Put it in Tarrasch's documents folder (next to Tarrasch.ini) or next to Tarrasch.exe. Rebuilt on the 3rd of every month."
+            echo
+            echo "Current build: \`$BOOK_VERSION\`"
+            echo
+            echo "### Credits"
+            echo "- **[The Week in Chess](https://theweekinchess.com)** by **Mark Crowther**, editor since 1994. Weekly over-the-board games of strong players (issues 920 onward). Please support TWIC by donating on its website."
+            echo "- **[Lichess Elite Database](https://database.nikonoel.fr)** by **nikonoel**. lichess.org games, 2400+ vs 2200+, no bullet, filtered from the [Lichess open database](https://database.lichess.org)."
+            echo "- **[lichess-org/chess-openings](https://github.com/lichess-org/chess-openings)** (CC0). Opening names and ECO codes."
+            echo
+            echo "The book contains only position fingerprints and how many strong games reached each position. No games, names or other source text are included or redistributed. Full details: [wolf-eval/book/CREDITS.md](https://github.com/${{ github.repository }}/blob/wolf-eval/wolf-eval/book/CREDITS.md)"
+          } > notes.md
+          gh release edit opening-book --notes-file notes.md
