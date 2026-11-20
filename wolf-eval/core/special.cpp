@@ -1,6 +1,7 @@
 #include "special.h"
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include "thc.h"
 
 namespace wolf {
@@ -93,8 +94,26 @@ int bestCaptureGain(thc::ChessRules cr, const std::string &sq)
 
 } // namespace
 
+// Developer aid: with WOLF_SPECIAL_DUMP=file set, every judged move's inputs are appended
+// to that file, one per line, so rule changes can be replayed in seconds without the engine.
+static void dumpInput(const SpecialInput &in)
+{
+    const char *path = std::getenv("WOLF_SPECIAL_DUMP");
+    if (!path || !*path) return;
+    FILE *f = std::fopen(path, "a");
+    if (!f) return;
+    auto sc = [](const Score &s) { return std::string(s.is_mate ? "M" : "C") + std::to_string(s.value); };
+    std::string line;
+    for (auto &m : in.line) line += m + ",";
+    std::fprintf(f, "%s|%s|%s|%s|%s|%d|%s|%d|%s|%d|%d\n", in.fenBefore.c_str(), in.playedUci.c_str(), line.c_str(),
+                 sc(in.best).c_str(), sc(in.played).c_str(), in.hasSecond ? 1 : 0, sc(in.second).c_str(),
+                 in.isBest ? 1 : 0, in.prevMoveUci.c_str(), in.prevWasCapture ? 1 : 0, in.book ? 1 : 0);
+    std::fclose(f);
+}
+
 SpecialResult judgeSpecial(const SpecialInput &in)
 {
+    dumpInput(in);
     SpecialResult res;
     if (in.book || in.playedUci.size() < 4)
         return res;
@@ -126,24 +145,32 @@ SpecialResult judgeSpecial(const SpecialInput &in)
         thc::ChessRules r = cr;
         std::vector<int> deficit;   // after each ply of the line
         std::vector<char> lost;     // piece captured by that ply (if any)
-        for (size_t k = 0; k < in.line.size() && k < 8; ++k) {
+        bool ended = false;         // the line stops because the game is over (mate/stalemate)
+        for (size_t k = 0; k < in.line.size() && k < 6; ++k) {
             thc::Move m;
             if (!m.TerseIn(&r, in.line[k].c_str())) break;
             lost.push_back(pieceAt(r, squareOf(in.line[k])));
             r.PlayMove(m);
             deficit.push_back(base - materialDiff(r, white));
+            thc::TERMINAL t = thc::NOT_TERMINAL;
+            r.Evaluate(t);
+            if (t != thc::NOT_TERMINAL) { ended = true; break; }
         }
-        // After an opponent ply (index 1, 3, 5) the mover is >= 2 down, and stays that far down for
-        // the next three plies (two more of the mover's own moves) or until the line ends (mate).
-        // Winning the material straight back is a tactic, not a sacrifice.
-        for (size_t k = 1; k < deficit.size(); k += 2) {
-            bool persists = true;
-            for (size_t j = k + 1; j <= k + 3 && j < deficit.size(); ++j)
-                if (deficit[j] < kSacrificePoints) persists = false;
-            if (deficit[k] >= kSacrificePoints && persists && deficit[k] > sacPoints) {
+        // The opponent takes on its first or second reply (index 1 or 3), the mover was not
+        // already that far down before it, and the mover's next move doesn't win it straight back.
+        for (size_t k = 1; k <= 3 && k < deficit.size(); k += 2) {
+            if (deficit[k] < kSacrificePoints || deficit[k - 1] >= kSacrificePoints) continue;
+            // a capture on the second reply only counts if it takes the piece this move offered
+            // (otherwise it's the next move's sacrifice)
+            if (k == 3 && (squareOf(in.line[3]) != squareOf(in.playedUci) ||
+                           in.line[2].substr(0, 2) == squareOf(in.playedUci))) break;
+            bool known = k + 1 < deficit.size();
+            bool holds = known ? deficit[k + 1] >= kSacrificePoints : ended;
+            if (holds && deficit[k] > sacPoints) {
                 sacPoints = deficit[k];
                 sacPiece = lost[k];
             }
+            break;   // only the first material swing belongs to this move
         }
     }
     if (sacPoints < kSacrificePoints && pieceValue(moved) >= kSacrificePoints) {
@@ -188,6 +215,28 @@ SpecialResult judgeSpecial(const SpecialInput &in)
     }
     if (in.prevWasCapture && squareOf(in.prevMoveUci) == squareOf(in.playedUci))
         return res;   // just taking back
+    if (in.followsUp)
+        return res;   // the next step of a combination that was already marked
+    {
+        char target = pieceAt(cr, squareOf(in.playedUci));
+        if (target != ' ' && target != 0) {
+            thc::ChessRules after = cr;
+            after.PlayMove(mv);
+            thc::MOVELIST back;
+            after.GenLegalMoveList(&back);
+            bool defended = false;
+            for (int j = 0; j < back.count; ++j)
+                if (squareOf(back.moves[j].TerseOut()) == squareOf(in.playedUci)) { defended = true; break; }
+            if (!defended || pieceValue(target) >= pieceValue(moved))
+                return res;   // taking free (or at least equal) material is the obvious move
+        }
+    }
+    {
+        thc::ChessRules c2 = cr;
+        bool inCheck = c2.AttackedPiece(white ? c2.wking_square : c2.bking_square);
+        if (inCheck && std::toupper((unsigned char)moved) == 'K')
+            return res;   // stepping out of check: the choices are few and forced
+    }
     thc::MOVELIST list;
     cr.GenLegalMoveList(&list);
     if (list.count < 3)

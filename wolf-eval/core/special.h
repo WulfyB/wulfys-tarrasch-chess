@@ -4,10 +4,12 @@
 //   * not a book move
 //   * the engine's best move, or within kBrilliantMaxLossCp of it
 //   * gives up at least kSacrificePoints of material (pawn 1, knight/bishop 3, rook 5, queen 9):
-//       - in the engine's line after the move the mover is that far behind once it's taken, and
-//         stays that far behind for two more of its own moves (or until mate) - winning the
-//         material straight back is a tactic, not a sacrifice, or
+//       - in the engine's line the opponent takes it on its first or second reply, and the mover's
+//         next move doesn't win it straight back (that would just be a trade or a tactic) -
+//         getting it back later, because the opponent is forced to return it, still counts, or
 //       - the moved piece is left hanging and the engine's reply doesn't take it (it can't)
+//     Only the start of the line counts: a sacrifice further down the line belongs to that later
+//     move, and a line that's cut short never counts as "the material stayed lost".
 //   * the mover is still clearly better afterwards (>= kBrilliantMinAfterCp, or mating)
 //   * the mover wasn't already crushing (>= kAlreadyWinningCp) - unless it was also the only move,
 //     or the sacrifice forces mate (sacrificing for mate always counts)
@@ -18,8 +20,9 @@
 //   * the second-best move would be at least a mistake (win chances drop >= kOnlyMoveGap)
 //   * it matters: the mover stays >= kGreatKeepCp, or it saves a game the second-best move loses
 //   * it was critical: the second-best move doesn't still keep the mover at +3.0 or more
-//   * it isn't obvious: not a recapture on the square just captured on, not checkmate itself,
-//     and >= 3 legal moves
+//   * it isn't obvious: not taking free material (an undefended piece, or one worth at least the
+//     piece taking it), not a recapture, not checkmate itself, not a king stepping out of check,
+//     not the next move of the mover's own combination that was already judged, and >= 3 legal moves
 //
 // Neither changes accuracy; they are shown on top of it.
 #pragma once
@@ -53,6 +56,7 @@ struct SpecialInput {
     bool  isBest = false;                   // the played move is the engine's first choice
     std::string prevMoveUci;                // opponent's previous move ("" at the start)
     bool  prevWasCapture = false;
+    bool  followsUp = false;                // the move continues the mover's own earlier special move's line
     bool  book = false;
 };
 

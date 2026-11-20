@@ -321,6 +321,77 @@ static void testGapRule() {
     CHECK(!hr.empty() && hr[0].gapNotCounted && hr[0].bookEndPly == 1);
 }
 
+// Wulfy's sample game 1 (tests/games/wulfy-sample-1.pgn), judged by Stockfish 11 at depth 20.
+// Each row is what analysis.cpp hands judgeSpecial (FEN|move|line|best|played|hasSecond|second|
+// isBest|prevMove|prevWasCapture|book). Wulfy's verdicts: 15...Nc3+, 23.Nc4, 30.Rd5 and 31.Qxc8+ are
+// brilliant; 11.Bd3 is just best; and there were too many Greats.
+static Score parseScore(const std::string &s) { return s[0] == 'M' ? Score::Mate(std::stoi(s.substr(1))) : Score::Cp(std::stoi(s.substr(1))); }
+
+static SpecialInput specialRow(const std::string &row)
+{
+    std::vector<std::string> c;
+    size_t a = 0;
+    for (size_t b; (b = row.find('|', a)) != std::string::npos; a = b + 1) c.push_back(row.substr(a, b - a));
+    c.push_back(row.substr(a));
+    SpecialInput in;
+    in.fenBefore = c[0]; in.playedUci = c[1];
+    for (size_t x = 0, y; x < c[2].size(); x = y + 1) {
+        y = c[2].find(',', x);
+        if (y == std::string::npos) y = c[2].size();
+        in.line.push_back(c[2].substr(x, y - x));
+    }
+    in.best = parseScore(c[3]); in.played = parseScore(c[4]); in.hasSecond = c[5] == "1"; in.second = parseScore(c[6]);
+    in.isBest = c[7] == "1"; in.prevMoveUci = c[8]; in.prevWasCapture = c[9] == "1"; in.book = c[10] == "1";
+    return in;
+}
+
+static void testSpecialWulfyGame()
+{
+    struct Row { const char *move; const char *data; Special want; bool followsUp; };
+    const Row rows[] = {
+        {"4.Nxe4", "rnbqkbnr/ppp2ppp/4p3/8/3Pp3/2N5/PPP2PPP/R1BQKBNR w KQkq - 0 4|c3e4|c3e4,g8f6,e4f6,g7f6,g1f3,b8c6,f1d3,h8g8,e1g1,e6e5|C108|C108|1|C-50|1|e7e6|0|0", Special::None, false},
+        {"6.Bd3", "rnbqk1nr/pp2bppp/2p1p3/8/3PN3/5N2/PPP2PPP/R1BQKB1R w KQkq - 2 6|f1d3|f1d3,g8f6,e1g1,f6e4,d3e4,c6c5,d4c5,d8d1,f1d1,e7c5|C155|C155|1|C154|1|f8e7|0|0", Special::None, false},
+        {"11.Bd3", "r1bqk2r/pp2bpp1/2p1pn1p/8/3PB3/4BN2/PPPQ1PPP/2KR3R w kq - 1 11|e4d3|e4d3,b7b5,f3e5,d8c7,d2e2,a7a5,e5c6,e7d6,c6e5,e8g8|C85|C85|1|C0|1|d7f6|0|0", Special::None, false},
+        {"13.Qe2", "r1bqk2r/pp3pp1/2p1p2p/3nN3/1b1P4/3BB3/PPPQ1PPP/2KR3R w kq - 5 13|d2e2|d2e2,d5e3,e2e3,d8e7,g2g3,c8d7,c1b1,b4d6,c2c3,e8c8|C136|C136|1|C135|1|e7b4|0|0", Special::None, false},
+        {"15...Nc3+", "r1b1k2r/pp3pp1/1qp1p2p/3nN3/1b1P4/3B4/PPP1QPPP/1KBR3R b kq - 10 15|d5c3|d5c3,b2c3,b4c3,d3b5,b6b5,e2b5,c6b5,d1d3,b5b4,a2a3|C-190|C-190|1|C172|1|e3c1|0|0", Special::Brilliant, false},
+        {"19.Qxc3", "r1b2rk1/pp3pp1/1q2p2p/1p2N3/3P4/2b2Q2/P1P2PPP/1KBR3R w - - 2 19|f3c3|f3c3,f7f6,e5g6,b5b4,c3h3,f8e8,c1h6,e6e5,h3h5,b6e6|C394|C394|1|C0|1|e8g8|0|0", Special::None, false},
+        {"23.Nc4", "r1b2rk1/1p3pp1/3q3p/p2pN3/1p6/4B3/PQP2PPP/1K1R3R w - - 0 23|e5c4|e5c4,d6c6,c4b6,a8a6,b6d5,g8h7,g2g4,c8e6,b2d4,f8c8|C297|C297|1|C284|1|e6d5|1|0", Special::Brilliant, false},
+        {"29.Qc5", "5rk1/1p3pp1/2q1b2p/p7/1p1Q4/4B3/P1P2PPP/1K1R3R w - - 2 29|d4c5|d4c5,c6a4,d1d5,f8c8,c5c8,e6c8,d5d8,g8h7,d8c8,a4d7|C446|C430|1|C418|0|e4c6|0|0", Special::None, false},
+        {"30.Rd5", "5rk1/1p3pp1/4b2p/p1Q5/qp6/4B3/P1P2PPP/1K1R3R w - - 4 30|d1d5|d1d5,f8c8,c5c8,e6c8,d5d8,g8h7,d8c8,a4d7,c8c5,b7b6|C460|C460|1|C181|1|c6a4|0|0", Special::Brilliant, false},
+        {"31.Qxc8+", "2r3k1/1p3pp1/4b2p/p1QR4/qp6/4B3/P1P2PPP/1K5R w - - 6 31|c5c8|c5c8,e6c8,d5d8,g8h7,d8c8,a4d7,c8c5,b7b6,c5c4,d7d5|C457|C457|1|C0|1|f8c8|0|0", Special::Brilliant, true},
+        {"32.Rd8+", "2b3k1/1p3pp1/7p/p2R4/qp6/4B3/P1P2PPP/1K5R w - - 0 32|d5d8|d5d8,g8h7,d8c8,a4d7,c8c5,b7b6,c5c4,d7d5,c4g4,f7f5|C445|C445|1|C-280|1|e6c8|1|0", Special::None, true},
+        {"33.Rxc8", "2bR4/1p3ppk/7p/p7/qp6/4B3/P1P2PPP/1K5R w - - 2 33|d8c8|d8c8,a4d7,c8c5,b7b6,c5c4,d7d5,c4g4,f7f5,g4d4,d5g2|C481|C481|1|C-402|1|g8h7|0|0", Special::None, true},
+        {"54.Ke2", "8/6pk/2q4p/5p2/7P/4BKP1/3R1P2/6R1 w - - 12 54|f3e2|f3e2,c6b5,e2e1,b5b1,d2d1,b1b3,g1h1,f5f4,e3f4,b3f3|C562|C562|1|C-117|1|c4c6|0|0", Special::None, false},
+    };
+    int brilliant = 0, great = 0;
+    for (const Row &r : rows) {
+        SpecialInput in = specialRow(r.data);
+        in.followsUp = r.followsUp;
+        SpecialResult res = judgeSpecial(in);
+        if (res.kind != r.want) std::printf("  %s: got %s (%s), want %s\n", r.move, specialName(res.kind), res.why.c_str(), specialName(r.want));
+        CHECK(res.kind == r.want);
+        brilliant += res.kind == Special::Brilliant;
+        great += res.kind == Special::Great;
+    }
+    CHECK(brilliant == 4 && great == 0);
+
+    // 30.Rd5's own sacrifice is the rook left hanging to ...Bxd5, not the queen given up a move later
+    SpecialResult rd5 = judgeSpecial(specialRow(rows[8].data));
+    CHECK(rd5.why.find("rook") != std::string::npos);
+    // 6.Bd3 with its line cut off right after ...Qxd1 (before Rxd1): a cut-off line never counts as
+    // "the material stayed lost", and that capture is three moves away anyway
+    SpecialInput cut = specialRow(rows[1].data);
+    cut.line.resize(8);
+    CHECK(judgeSpecial(cut).kind == Special::None);
+    // Without the follow-up flag, 32.Rd8+ would be a Great; with it, it's part of 31.Qxc8+'s combination
+    SpecialInput rd8 = specialRow(rows[10].data);
+    CHECK(judgeSpecial(rd8).kind == Special::Great);
+    // 19.Qxc3 is the only good move but it takes a free bishop; capturing a defended piece of less
+    // value than the capturer is different and could still be Great
+    SpecialInput qxc3 = specialRow(rows[5].data);
+    CHECK(judgeSpecial(qxc3).kind == Special::None);
+}
+
 static void testSpecial() {
     // Greek gift: 1.Bxh7+! Kxh7 2.Ng5+ Kg8 3.Qh5 - a bishop for a pawn, and White stays clearly better
     const char *greek = "rnbq1rk1/pppn1ppp/4p3/3pP3/1b1P4/2NB1N2/PPP2PPP/R2QK2R w KQ - 0 1";
@@ -439,7 +510,7 @@ int main(int argc, char **argv) {
                                 g.hasBlack ? std::to_string(g.black).c_str() : "none");
         return 0;
     }
-    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring(); testMyBook(); testGapRule(); testSpecial();
+    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring(); testMyBook(); testGapRule(); testSpecial(); testSpecialWulfyGame();
     testOpening(argc > 1 ? argv[1] : WOLF_LICHESS_DIR);
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;

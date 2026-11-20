@@ -40,6 +40,9 @@ jobs:
           if ($file.Extension -eq '.zip') { Expand-Archive $file.FullName -DestinationPath sf } else { New-Item -ItemType Directory sf | Out-Null; Copy-Item $file.FullName sf/ }
           $exe = Get-ChildItem sf -Recurse -Filter *.exe | Select-Object -First 1
           wolf-eval/build/Release/wolf-eval.exe --engine $exe.FullName --depth 16 wolf-eval/tests/games/opera.pgn
+          # Wulfy's sample game: today's Stockfish should mark 15...Nc3+, 23.Nc4, 30.Rd5 and 31.Qxc8+ as
+          # Brilliant and few or no Greats (shown for a human to check; engine versions differ a little)
+          wolf-eval/build/Release/wolf-eval.exe --engine $exe.FullName --depth 18 --threads 2 wolf-eval/tests/games/wulfy-sample-1.pgn | Select-String -Pattern '!|Brilliant [0-9]'
 
       - name: Package
         shell: pwsh

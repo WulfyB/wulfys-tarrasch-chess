@@ -211,6 +211,10 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
         thc::ChessRules q = cr;
         std::string prevUci;
         bool prevCapture = false;
+        // The rest of the line of the latest special move, while the game keeps following it:
+        // the mover's next steps of that combination aren't judged as new "only moves".
+        std::vector<std::string> plan;
+        bool planWhite = false;
         for (size_t i = 0; i < played.size(); ++i) {
             std::string uci = played[i].TerseOut();
             std::string to = uci.substr(2, 2);
@@ -219,6 +223,14 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
             if (!capture && (q.squares[(7 - (uci[1] - '1')) * 8 + (uci[0] - 'a')] == 'P' ||
                              q.squares[(7 - (uci[1] - '1')) * 8 + (uci[0] - 'a')] == 'p') && uci[0] != uci[2])
                 capture = true;   // en passant
+            bool moverWhite = q.WhiteToPlay();
+            bool followsUp = false;
+            if (!plan.empty() && plan.front() == uci) {
+                followsUp = moverWhite == planWhite;
+                plan.erase(plan.begin());
+            } else {
+                plan.clear();
+            }
             if (!bestUci[i].empty()) {
                 SpecialInput si;
                 si.fenBefore = fens[i];
@@ -236,9 +248,14 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
                 si.prevMoveUci = prevUci;
                 si.prevWasCapture = prevCapture;
                 si.book = rep.moves[i].book;
+                si.followsUp = followsUp;
                 SpecialResult sr = judgeSpecial(si);
                 rep.moves[i].special = sr.kind;
                 rep.moves[i].specialWhy = sr.why;
+                if (sr.kind != Special::None && si.line.size() > 1) {
+                    plan.assign(si.line.begin() + 1, si.line.end());
+                    planWhite = moverWhite;
+                }
             }
             prevUci = uci;
             prevCapture = capture;

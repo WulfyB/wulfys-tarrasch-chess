@@ -145,12 +145,16 @@ moves at every position, so reviews take about 1.3-1.6x longer. Turn them off wi
 - It's the engine's best move, or within 0.2 pawns of it.
 - It gives up at least 2 points of material (pawn 1, knight/bishop 3, rook 5, queen 9), in one of
   two ways:
-  - In the engine's line, once the material is taken, the player stays at least 2 points down for
-    two more of their own moves (or until mate). Getting it straight back is a tactic, not a
-    sacrifice.
+  - In the engine's line the opponent takes it on its first reply (or takes the moved piece on its
+    second), and the player's next move doesn't win it straight back. Winning it straight back is
+    just a trade; getting it back later because the opponent is forced to give it up still counts
+    (15...Nc3+ in `tests/games/wulfy-sample-1.pgn`, where White's only defence returns a bishop).
   - The moved piece is left hanging, and the engine's reply doesn't take it.
+  - Only the start of the engine's line counts. A sacrifice further down the line belongs to that
+    later move, and a line that's cut short never counts as "the material stayed lost".
 - The player is still clearly better afterwards: +1.0 or more, or mating.
-- The player wasn't already crushing (+6.0 or more), unless it was also the only good move.
+- The player wasn't already crushing (+6.0 or more), unless it was also the only good move or the
+  sacrifice forces mate.
 
 **Great (!)** is the only good move. All of these must hold:
 - It isn't a book move and isn't brilliant.
@@ -158,7 +162,13 @@ moves at every position, so reviews take about 1.3-1.6x longer. Turn them off wi
 - The second-best move would be at least a mistake (winning chances drop by 0.2 or more).
 - It matters: it keeps the player at +0.8 or better, or it holds a position (-0.8 or better) that
   the second-best move would leave at -1.5 or worse.
-- It isn't obvious: a recapture on the square just captured on doesn't count, and neither does a
-  position with fewer than 3 legal moves.
+- The second-best move doesn't still keep the player at +3.0 or better (then it wasn't critical).
+- It isn't obvious. These don't count:
+  - taking free material (an undefended piece, or one worth at least the piece that takes it)
+  - a recapture on the square just captured on, or giving checkmate
+  - the king stepping out of check
+  - the next step of the player's own combination that was already marked ! or !! (the engine's
+    line for that move predicted it)
+  - a position with fewer than 3 legal moves
 
 The thresholds are constants at the top of `core/special.h`, so they're easy to tune.
