@@ -160,11 +160,12 @@ SpecialResult judgeSpecial(const SpecialInput &in)
     }
 
     // ---------------- brilliant
+    bool forcesMate = playedCp >= CP_CEILING;
     if (sacPoints >= kSacrificePoints && loss <= kBrilliantMaxLossCp && playedCp >= kBrilliantMinAfterCp &&
-        (bestCp < kAlreadyWinningCp || onlyMove)) {
+        (bestCp < kAlreadyWinningCp || onlyMove || forcesMate)) {
         res.kind = Special::Brilliant;
         res.why = std::string("sacrifices ") + pieceName(sacPiece) + " (" + std::to_string(sacPoints) +
-                  (sacPoints == 1 ? " point" : " points") + " down) and stays " + pawns(playedCp);
+                  (sacPoints == 1 ? " point" : " points") + " down)" + (forcesMate ? " and forces mate" : " and stays " + pawns(playedCp));
         return res;
     }
 
@@ -175,6 +176,16 @@ SpecialResult judgeSpecial(const SpecialInput &in)
     bool saves = secondCp <= kGreatSavesFromCp && playedCp >= kGreatSavedToCp;
     if (!keeps && !saves)
         return res;
+    if (secondCp >= kGreatStillWinningCp)
+        return res;   // the next best move still wins comfortably: not critical
+    {
+        thc::ChessRules after = cr;
+        after.PlayMove(mv);
+        thc::TERMINAL t = thc::NOT_TERMINAL;
+        after.Evaluate(t);
+        if (t == thc::TERMINAL_WCHECKMATE || t == thc::TERMINAL_BCHECKMATE)
+            return res;   // giving mate is its own reward
+    }
     if (in.prevWasCapture && squareOf(in.prevMoveUci) == squareOf(in.playedUci))
         return res;   // just taking back
     thc::MOVELIST list;

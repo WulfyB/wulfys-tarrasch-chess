@@ -9,14 +9,17 @@
 //         material straight back is a tactic, not a sacrifice, or
 //       - the moved piece is left hanging and the engine's reply doesn't take it (it can't)
 //   * the mover is still clearly better afterwards (>= kBrilliantMinAfterCp, or mating)
-//   * the mover wasn't already crushing (>= kAlreadyWinningCp) - unless it was also the only move
+//   * the mover wasn't already crushing (>= kAlreadyWinningCp) - unless it was also the only move,
+//     or the sacrifice forces mate (sacrificing for mate always counts)
 //
 // Great (!): the only good move. All of:
 //   * not a book move, not brilliant
 //   * the engine's best move
 //   * the second-best move would be at least a mistake (win chances drop >= kOnlyMoveGap)
 //   * it matters: the mover stays >= kGreatKeepCp, or it saves a game the second-best move loses
-//   * it isn't obvious: not a recapture on the square just captured on, and >= 3 legal moves
+//   * it was critical: the second-best move doesn't still keep the mover at +3.0 or more
+//   * it isn't obvious: not a recapture on the square just captured on, not checkmate itself,
+//     and >= 3 legal moves
 //
 // Neither changes accuracy; they are shown on top of it.
 #pragma once
@@ -38,6 +41,7 @@ const double kOnlyMoveGap         = 0.2;     // = a mistake on Lichess's scale
 const int    kGreatKeepCp         = 80;
 const int    kGreatSavesFromCp    = -150;    // second-best this bad (or worse) ...
 const int    kGreatSavedToCp      = -80;     // ... while the move keeps the mover at least here
+const int    kGreatStillWinningCp = 300;     // if the second-best still keeps +3.0, the move wasn't critical
 
 struct SpecialInput {
     std::string fenBefore;                  // position before the move

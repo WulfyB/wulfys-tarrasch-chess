@@ -407,6 +407,26 @@ static void testSpecial() {
     CHECK(judgeSpecial(recap).kind == Special::None);                    // just taking back
     SpecialInput notBest = only; notBest.isBest = false;
     CHECK(judgeSpecial(notBest).kind == Special::None);
+    SpecialInput cosy = only; cosy.best = cosy.played = Score::Cp(830); cosy.second = Score::Cp(410);
+    CHECK(judgeSpecial(cosy).kind == Special::None);                     // next best still +4: not critical
+
+    // Opera Game 16.Qb8+!! Nxb8 17.Rd8#: already crushing, but sacrificing the queen for mate counts
+    SpecialInput qb8;
+    qb8.fenBefore = "1n2kb1r/p3qppp/4b3/4p1B1/4P3/1Q6/PPP2PPP/3R2K1 w k - 0 16";
+    qb8.playedUci = "b3b8"; qb8.line = {"b3b8", "b8b8", "d1d8"};
+    qb8.line = {"b3b8", "d7b8", "d1d8"};
+    qb8.fenBefore = "4kb1r/p2n1ppp/4q3/4p1B1/4P3/1Q6/PPP2PPP/2KR4 w k - 0 16";
+    qb8.best = qb8.played = Score::Mate(2); qb8.isBest = true;
+    qb8.hasSecond = true; qb8.second = Score::Cp(950);
+    SpecialResult q = judgeSpecial(qb8);
+    CHECK(q.kind == Special::Brilliant && q.why.find("forces mate") != std::string::npos);
+    std::printf("  e.g. Qb8+: %s, %s\n", specialName(q.kind), q.why.c_str());
+    // 17.Rd8# itself is not "great"
+    SpecialInput rd8;
+    rd8.fenBefore = "1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17";
+    rd8.playedUci = "d1d8"; rd8.line = {"d1d8"};
+    rd8.best = rd8.played = Score::Mate(1); rd8.isBest = true; rd8.hasSecond = true; rd8.second = Score::Cp(-880);
+    CHECK(judgeSpecial(rd8).kind == Special::None);
 }
 
 int main(int argc, char **argv) {
