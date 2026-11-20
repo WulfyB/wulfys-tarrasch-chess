@@ -32,9 +32,12 @@ void scoreGame(GameReport &rep, bool whiteStarts) {
         PlayerStats &p = *ps[m.white ? 0 : 1];
         if (m.book) {             // theory: shown, never punished, not counted
             m.judgement = Judgement::None;
+            m.special = Special::None;
             p.bookMoves++;
             continue;
         }
+        if (m.special == Special::Brilliant) p.brilliant++;
+        else if (m.special == Special::Great) p.great++;
         p.moves++;
         if (m.isBest) p.best++;
         if (m.judgement == Judgement::Inaccuracy) p.inaccuracies++;
@@ -125,10 +128,15 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
     }
 
     rep.method = opt.method;
+    engine.setOption("MultiPV", opt.findSpecial ? "2" : "1");
     engine.newGame();
     thc::ChessRules pos = cr;
     std::vector<std::string> bestUci(fens.size());
     std::vector<Score> playedScore(played.size());
+    std::vector<Score> secondScore(fens.size());
+    std::vector<bool> hasSecond(fens.size(), false);
+    std::vector<std::vector<std::string>> playedLine(played.size());
+    std::vector<std::vector<std::string>> posLine(fens.size());   // engine line from each position
     for (size_t i = 0; i < fens.size(); ++i) {
         thc::TERMINAL term = thc::NOT_TERMINAL;
         pos.Evaluate(term);
@@ -147,13 +155,22 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
             if (!er.ok) { rep.error = "The engine stopped answering at move " + std::to_string(i / 2 + firstMoveNumber) + "."; return rep; }
             s = toWhite(er);
             bestUci[i] = er.bestMoveUci;
+            posLine[i] = er.pv;
+            if (er.hasSecond) {
+                EngineResult two = er;
+                two.isMate = er.secondIsMate;
+                two.value = er.secondValue;
+                secondScore[i] = toWhite(two);
+                hasSecond[i] = true;
+            }
             if (opt.method == Method::SameRoot && i < played.size()) {
                 std::string mine = played[i].TerseOut();
-                if (mine == er.bestMoveUci) playedScore[i] = s;
+                if (mine == er.bestMoveUci) { playedScore[i] = s; playedLine[i] = er.pv; }
                 else {
                     EngineResult pr = engine.analyse(fens[i], opt.depth, opt.movetimeMs, mine);
                     if (!pr.ok) { rep.error = "The engine stopped answering at move " + std::to_string(i / 2 + firstMoveNumber) + "."; return rep; }
                     playedScore[i] = toWhite(pr);
+                    playedLine[i] = pr.pv;
                     // A deeper look at one move can't be better than the best move: keep them consistent.
                     int sign = whiteToMove ? 1 : -1;
                     if (sign * playedScore[i].ceiledCp() > sign * s.ceiledCp()) s = playedScore[i];
@@ -189,6 +206,45 @@ GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOpt
         r.PlayMove(played[i]);
     }
     if (opt.book) applyGapRule(rep, *opt.book, fen, game.sanMoves);
+
+    if (opt.findSpecial) {
+        thc::ChessRules q = cr;
+        std::string prevUci;
+        bool prevCapture = false;
+        for (size_t i = 0; i < played.size(); ++i) {
+            std::string uci = played[i].TerseOut();
+            std::string to = uci.substr(2, 2);
+            int idx = (7 - (to[1] - '1')) * 8 + (to[0] - 'a');
+            bool capture = q.squares[idx] != ' ' && q.squares[idx] != 0;
+            if (!capture && (q.squares[(7 - (uci[1] - '1')) * 8 + (uci[0] - 'a')] == 'P' ||
+                             q.squares[(7 - (uci[1] - '1')) * 8 + (uci[0] - 'a')] == 'p') && uci[0] != uci[2])
+                capture = true;   // en passant
+            if (!bestUci[i].empty()) {
+                SpecialInput si;
+                si.fenBefore = fens[i];
+                si.playedUci = uci;
+                si.line = playedLine[i];
+                if (si.line.empty()) {   // Lichess method: the move, then the engine's line from the next position
+                    si.line.push_back(uci);
+                    si.line.insert(si.line.end(), posLine[i + 1].begin(), posLine[i + 1].end());
+                }
+                si.best = rep.evals[i];
+                si.played = rep.moves[i].after;
+                si.hasSecond = hasSecond[i];
+                si.second = secondScore[i];
+                si.isBest = rep.moves[i].isBest;
+                si.prevMoveUci = prevUci;
+                si.prevWasCapture = prevCapture;
+                si.book = rep.moves[i].book;
+                SpecialResult sr = judgeSpecial(si);
+                rep.moves[i].special = sr.kind;
+                rep.moves[i].specialWhy = sr.why;
+            }
+            prevUci = uci;
+            prevCapture = capture;
+            q.PlayMove(played[i]);
+        }
+    }
     scoreGame(rep, whiteStarts);
     rep.ok = true;
     return rep;

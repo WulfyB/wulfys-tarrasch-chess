@@ -183,6 +183,7 @@ EngineResult UciEngine::analyse(const std::string &fen, int depth, int movetimeM
             std::istringstream ss(line);
             std::string tok;
             int d = 0, mpv = 1; bool haveScore = false, bound = false, mate = false; int val = 0;
+            std::vector<std::string> pv;
             while (ss >> tok) {
                 if (tok == "depth") ss >> d;
                 else if (tok == "multipv") ss >> mpv;
@@ -190,13 +191,19 @@ EngineResult UciEngine::analyse(const std::string &fen, int depth, int movetimeM
                     std::string kind; ss >> kind >> val;
                     mate = (kind == "mate"); haveScore = true;
                 } else if (tok == "lowerbound" || tok == "upperbound") bound = true;
-                else if (tok == "pv") break;
+                else if (tok == "pv") { std::string m; while (ss >> m) pv.push_back(m); break; }
             }
-            if (haveScore && !bound && mpv == 1) { r.isMate = mate; r.value = val; r.depth = d; r.ok = true; }
+            if (haveScore && !bound && mpv == 1) {
+                if (d > r.depth || !r.ok) r.hasSecond = false;   // a new depth: the old second line is stale
+                r.isMate = mate; r.value = val; r.depth = d; r.ok = true;
+                if (!pv.empty()) r.pv = pv;
+            }
+            if (haveScore && !bound && mpv == 2 && d >= r.depth) { r.hasSecond = true; r.secondIsMate = mate; r.secondValue = val; }
         } else if (line.rfind("bestmove", 0) == 0) {
             std::istringstream ss(line);
             std::string b, mv; ss >> b >> mv;
             if (mv != "(none)" && mv != "0000") r.bestMoveUci = mv;
+            if (!r.pv.empty() && r.pv[0] != r.bestMoveUci) r.pv.clear();
             break;
         }
     }

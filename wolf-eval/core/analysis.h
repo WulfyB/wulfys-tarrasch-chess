@@ -7,6 +7,7 @@
 #include "pgn.h"
 #include "uci_engine.h"
 #include "opening.h"
+#include "special.h"
 
 namespace wolf {
 
@@ -29,6 +30,8 @@ struct MoveReport {
     Judgement   judgement = Judgement::None;
     bool        book = false;     // known theory: not judged, not counted in accuracy / loss
     uint32_t    bookGames = 0;    // how many book games reached the position after it
+    Special     special = Special::None;   // great (!) / brilliant (!!), see special.h
+    std::string specialWhy;
 };
 
 struct PlayerStats {
@@ -37,6 +40,7 @@ struct PlayerStats {
     double acpl = 0;              // average centipawn loss
     int    moves = 0, best = 0, inaccuracies = 0, mistakes = 0, blunders = 0;   // judged (non-book) moves
     int    bookMoves = 0;
+    int    brilliant = 0, great = 0;
 };
 
 struct GameReport {
@@ -61,6 +65,9 @@ struct AnalysisOptions {
     std::function<bool(int, int)> progress;
     // Optional opening book: book moves are marked and not punished.
     const OpeningBook *book = nullptr;
+    // Look for great (!) and brilliant (!!) moves. Needs the engine's top two moves at every
+    // position (MultiPV 2), which makes the review roughly 1.3-1.6x slower.
+    bool findSpecial = true;
 };
 
 GameReport analyseGame(const PgnGame &game, UciEngine &engine, const AnalysisOptions &opt);

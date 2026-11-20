@@ -321,6 +321,94 @@ static void testGapRule() {
     CHECK(!hr.empty() && hr[0].gapNotCounted && hr[0].bookEndPly == 1);
 }
 
+static void testSpecial() {
+    // Greek gift: 1.Bxh7+! Kxh7 2.Ng5+ Kg8 3.Qh5 - a bishop for a pawn, and White stays clearly better
+    const char *greek = "rnbq1rk1/pppn1ppp/4p3/3pP3/1b1P4/2NB1N2/PPP2PPP/R2QK2R w KQ - 0 1";
+    SpecialInput g;
+    g.fenBefore = greek; g.playedUci = "d3h7"; g.line = {"d3h7", "g8h7", "f3g5", "h7g8", "d1h5"};
+    g.best = Score::Cp(250); g.played = Score::Cp(250); g.isBest = true;
+    g.hasSecond = true; g.second = Score::Cp(60);
+    SpecialResult r = judgeSpecial(g);
+    CHECK(r.kind == Special::Brilliant);
+    std::printf("  e.g. Bxh7+: %s, %s\n", specialName(r.kind), r.why.c_str());
+    CHECK(r.why.find("bishop (2 points down)") != std::string::npos);
+    SpecialInput weak = g; weak.played = Score::Cp(40); weak.best = Score::Cp(40);     // sound but only equal
+    CHECK(judgeSpecial(weak).kind != Special::Brilliant);
+    SpecialInput unsound = g; unsound.played = Score::Cp(-200); unsound.isBest = false; // a bad sacrifice
+    CHECK(judgeSpecial(unsound).kind == Special::None);
+    SpecialInput book = g; book.book = true;
+    CHECK(judgeSpecial(book).kind == Special::None);
+    SpecialInput crushing = g; crushing.best = crushing.played = Score::Cp(800); crushing.second = Score::Cp(780);
+    CHECK(judgeSpecial(crushing).kind == Special::None);                                 // already winning, not needed
+
+    // A plain trade is not a sacrifice: 4.Bxc6 dxc6 5.O-O
+    SpecialInput trade;
+    trade.fenBefore = "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4";
+    trade.playedUci = "b5c6"; trade.line = {"b5c6", "d7c6", "e1g1"};
+    trade.best = trade.played = Score::Cp(150); trade.isBest = true;
+    CHECK(judgeSpecial(trade).kind != Special::Brilliant);
+    // Material won straight back is a tactic: 3.Nxe5 Nxe5 4.d4 Ng6?? 5.dxe5 style - here the
+    // knight is regained on White's second move after it's taken
+    SpecialInput back;
+    back.fenBefore = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+    back.playedUci = "f3e5"; back.line = {"f3e5", "c6e5", "d2d4", "e5c6", "d4d5", "c6e7", "d5d6"};
+    back.best = back.played = Score::Cp(150); back.isBest = true;
+    CHECK(judgeSpecial(back).kind == Special::Brilliant);   // stays a piece down for 2+ moves: counts
+    back.line = {"f3e5", "c6e5", "d2d4", "e5c6", "d4d5", "c6e5", "f2f4"};   // regained? no: still down -> counts
+    CHECK(judgeSpecial(back).kind == Special::Brilliant);
+    // Won straight back: 1.Bxf7+ Kxf7 2.Ng5+ Kg8 3.Qxd8 (bishop for the queen two moves later)
+    SpecialInput quick;
+    quick.fenBefore = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5";
+    quick.playedUci = "c4f7"; quick.line = {"c4f7", "e8f7", "f3g5", "f7g8", "d1h5"};
+    quick.best = quick.played = Score::Cp(150); quick.isBest = true;
+    CHECK(judgeSpecial(quick).kind == Special::Brilliant);    // stays a piece down: a real sacrifice
+    quick.line = {"c4f7", "e8f7", "f3e5", "c6e5", "d1h5", "g7g6", "h5e5"};
+    CHECK(judgeSpecial(quick).kind != Special::Brilliant);    // more material back within two moves
+
+    // Offered queen that can't be taken: 1.Qg6!! (fxg6 or hxg6 allows Rh8#-style mate) - modelled as
+    // the queen hanging to a pawn while the engine's reply declines it
+    SpecialInput offer;
+    offer.fenBefore = "5rk1/5pp1/7p/8/8/8/5PPP/3Q2KR w - - 0 1";
+    offer.playedUci = "d1d5"; offer.line = {"d1d5", "g8h7"};
+    offer.best = offer.played = Score::Cp(120); offer.isBest = true;
+    CHECK(judgeSpecial(offer).kind != Special::Brilliant);       // queen not attacked: no sacrifice
+    offer.fenBefore = "5rk1/5pp1/7p/8/8/8/5PPP/3Q2KR w - - 0 1";
+    offer.playedUci = "d1g4"; offer.line = {"d1g4", "g8h7"};   // nothing attacks g4 either
+    CHECK(judgeSpecial(offer).kind != Special::Brilliant);
+    offer.playedUci = "d1d6"; offer.line = {"d1d6", "g8h7"};   // nothing attacks d6
+    CHECK(judgeSpecial(offer).kind != Special::Brilliant);
+    offer.fenBefore = "6k1/5pp1/7p/8/8/8/5PPP/3Q2KR w - - 0 1";
+    offer.playedUci = "d1g4"; offer.line = {"d1g4"};
+    CHECK(judgeSpecial(offer).kind != Special::Brilliant);
+    offer.fenBefore = "6k1/5p2/7p/8/8/8/5PPP/3Q2KR w - - 0 1";
+    offer.playedUci = "d1g4"; offer.line = {"d1g4", "g8f8"};
+    CHECK(judgeSpecial(offer).kind != Special::Brilliant);
+    offer.fenBefore = "6k1/5pp1/5n1p/8/8/8/5PPP/3Q2KR w - - 0 1";   // knight f6 attacks g4
+    offer.playedUci = "d1g4"; offer.line = {"d1g4", "g8h7"};          // ...and the engine declines it
+    SpecialResult off = judgeSpecial(offer);
+    CHECK(off.kind == Special::Brilliant && off.why.find("queen") != std::string::npos);
+
+    // Great: the only good move
+    SpecialInput only;
+    only.fenBefore = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
+    only.playedUci = "f1b5"; only.line = {"f1b5"};
+    only.best = only.played = Score::Cp(120); only.isBest = true;
+    only.hasSecond = true; only.second = Score::Cp(-120);
+    SpecialResult gr = judgeSpecial(only);
+    CHECK(gr.kind == Special::Great);
+    std::printf("  e.g. %s: %s\n", specialName(gr.kind), gr.why.c_str());
+    SpecialInput easy = only; easy.second = Score::Cp(90);              // other moves are fine too
+    CHECK(judgeSpecial(easy).kind == Special::None);
+    SpecialInput small = only; small.best = small.played = Score::Cp(30); small.second = Score::Cp(-80);
+    CHECK(judgeSpecial(small).kind == Special::None);                    // doesn't keep +0.8, doesn't save a loss
+    SpecialInput save = only; save.best = save.played = Score::Cp(-20); save.second = Score::Cp(-400);
+    CHECK(judgeSpecial(save).kind == Special::Great);                    // saves a lost game
+    SpecialInput recap = only; recap.prevMoveUci = "c6b5"; recap.prevWasCapture = true;
+    CHECK(judgeSpecial(recap).kind == Special::None);                    // just taking back
+    SpecialInput notBest = only; notBest.isBest = false;
+    CHECK(judgeSpecial(notBest).kind == Special::None);
+}
+
 int main(int argc, char **argv) {
     if (argc > 2 && std::strcmp(argv[1], "--game-accuracy") == 0) {
         bool whiteStarts = argv[2][0] == 'W';
@@ -331,7 +419,7 @@ int main(int argc, char **argv) {
                                 g.hasBlack ? std::to_string(g.black).c_str() : "none");
         return 0;
     }
-    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring(); testMyBook(); testGapRule();
+    testWinPercent(); testMoveAccuracy(); testJudge(); testGameAccuracy(); testPgn(); testScoreGame(); testElo(); testHistory(); testBookScoring(); testMyBook(); testGapRule(); testSpecial();
     testOpening(argc > 1 ? argv[1] : WOLF_LICHESS_DIR);
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;

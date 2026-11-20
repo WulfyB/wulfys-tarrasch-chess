@@ -133,3 +133,32 @@ Actions tab, with options for the thresholds or for a fresh start.
 - `wolf-book info WolfBook.bin` shows the version and size.
 - `wolf-book name WolfBook.bin 1.c4 e6 2.Nc3 d5 3.d4` names a line and shows which moves are book.
 - `wolf-eval --book FILE` / `--no-book` control the book from the command line.
+
+## Great (!) and brilliant (!!) moves
+
+These are shown on top of accuracy and don't change it. Finding them needs the engine's top two
+moves at every position, so reviews take about 1.3-1.6x longer. Turn them off with
+`find_special = no` in `WolfReview.ini`, the checkbox in the review settings, or `--no-special`.
+
+**Brilliant (!!)** is a sound sacrifice. All of these must hold:
+- It isn't a book move.
+- It's the engine's best move, or within 0.2 pawns of it.
+- It gives up at least 2 points of material (pawn 1, knight/bishop 3, rook 5, queen 9), in one of
+  two ways:
+  - In the engine's line, once the material is taken, the player stays at least 2 points down for
+    two more of their own moves (or until mate). Getting it straight back is a tactic, not a
+    sacrifice.
+  - The moved piece is left hanging, and the engine's reply doesn't take it.
+- The player is still clearly better afterwards: +1.0 or more, or mating.
+- The player wasn't already crushing (+6.0 or more), unless it was also the only good move.
+
+**Great (!)** is the only good move. All of these must hold:
+- It isn't a book move and isn't brilliant.
+- It's the engine's best move.
+- The second-best move would be at least a mistake (winning chances drop by 0.2 or more).
+- It matters: it keeps the player at +0.8 or better, or it holds a position (-0.8 or better) that
+  the second-best move would leave at -1.5 or worse.
+- It isn't obvious: a recapture on the square just captured on doesn't count, and neither does a
+  position with fewer than 3 legal moves.
+
+The thresholds are constants at the top of `core/special.h`, so they're easy to tune.

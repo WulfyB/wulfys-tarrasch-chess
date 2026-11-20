@@ -12,6 +12,7 @@
 //     --book FILE       opening book (default: WolfBook.bin next to Tarrasch.ini, plus your
 //                       "WolfReview my book.tsv"); book moves are not judged
 //     --no-book         judge every move
+//     --no-special      skip great (!) / brilliant (!!) detection (faster)
 //     --method M        "sameroot" (default: your move vs the best move from the same position)
 //                       or "lichess" (Lichess's exact before/after method)
 #include <algorithm>
@@ -170,7 +171,7 @@ static void printReport(const GameReport &r) {
 
 int main(int argc, char **argv) {
     std::string enginePath, pgnPath, jsonPath, historyCsv, bookPath;
-    bool noBook = false;
+    bool noBook = false, noSpecial = false;
     AnalysisOptions opt;
     opt.depth = 22;
     const int MAX_DEPTH = 40, MAX_MOVETIME = 60000;
@@ -191,6 +192,7 @@ int main(int argc, char **argv) {
         else if (a == "--history") historyCsv = next("--history");
         else if (a == "--book") bookPath = next("--book");
         else if (a == "--no-book") noBook = true;
+        else if (a == "--no-special") noSpecial = true;
         else if (a == "--method") {
             std::string m = next("--method");
             if (m == "lichess") opt.method = Method::Lichess;
@@ -242,8 +244,11 @@ int main(int argc, char **argv) {
         if (!bookPath.empty()) rs.bookFile = bookPath;
         std::string status;
         if (loadReviewBook(dir + "WolfReview.ini", rs, {"WolfBook.bin"}, book, status)) opt.book = &book;
+        opt.findSpecial = rs.findSpecial;
         std::fprintf(stderr, "  %s\n", status.c_str());
     }
+
+    if (noSpecial) opt.findSpecial = false;
 
     auto started = std::chrono::steady_clock::now();
     opt.progress = [&started](int done, int total) {

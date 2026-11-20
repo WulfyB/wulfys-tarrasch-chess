@@ -20,6 +20,7 @@ struct ReviewSettings {
     bool        recordHistory = true;
     std::string historyFile;      // empty = "WolfReview history.csv" next to the .ini
     bool        useBook = true;   // mark book moves (not punished) and name the opening
+    bool        findSpecial = true;   // look for great (!) and brilliant (!!) moves (a bit slower)
     std::string bookFile;         // empty = "WolfBook.bin" next to the .ini (or next to Tarrasch.exe)
 };
 
@@ -64,6 +65,7 @@ struct HistoryRow {
     bool        transposed = false, outOfBookGap = false;   // (T) and (O)
     bool        gapNotCounted = false;   // (O) after a weak move: book ends before the gap
     int         bookEndPly = 0;          // where book ends in that case
+    int         brilliant = 0, great = 0;
     int         bookMoves = 0;    // this player's book moves (not counted in accuracy)
     std::string bookVersion;
 };

@@ -88,7 +88,7 @@ const char *kColumns[] = {
     "inaccuracies", "mistakes", "blunders", "est_elo", "elo_low", "elo_high",
     "depth", "method", "engine",
     "eco", "opening", "transposed", "out_of_book_gap", "book_moves", "book_version",
-    "gap_not_counted", "book_ends_ply"
+    "gap_not_counted", "book_ends_ply", "brilliant", "great"
 };
 const int kNumColumns = (int)(sizeof kColumns / sizeof kColumns[0]);
 
@@ -102,7 +102,8 @@ std::vector<std::string> toFields(const HistoryRow &r)
              r.method, r.engine,
              r.eco, r.opening, r.transposed ? "yes" : "no", r.outOfBookGap ? "yes" : "no",
              std::to_string(r.bookMoves), r.bookVersion,
-             r.gapNotCounted ? "yes" : "no", std::to_string(r.bookEndPly) };
+             r.gapNotCounted ? "yes" : "no", std::to_string(r.bookEndPly),
+             std::to_string(r.brilliant), std::to_string(r.great) };
 }
 
 bool sameKey(const HistoryRow &a, const HistoryRow &b)
@@ -155,6 +156,8 @@ bool loadSettings(const std::string &iniPath, ReviewSettings &s)
             s.useBook = truthy(v);
         } else if (k == "book_file") {
             s.bookFile = v;
+        } else if (k == "find_special") {
+            s.findSpecial = truthy(v);
         }
     }
     return true;
@@ -182,7 +185,10 @@ bool saveSettings(const std::string &iniPath, const ReviewSettings &s)
         << "use_book = " << (s.useBook ? "yes" : "no") << "\r\n"
         << "; Leave empty for WolfBook.bin next to this file (or next to Tarrasch.exe).\r\n"
         << "; Your own additions go in \"WolfReview my book.tsv\" next to this file.\r\n"
-        << "book_file = " << s.bookFile << "\r\n";
+        << "book_file = " << s.bookFile << "\r\n"
+        << "; yes = mark great (!) and brilliant (!!) moves (the engine compares its top two moves,\r\n"
+        << "; which makes reviews about 1.3-1.6x slower)\r\n"
+        << "find_special = " << (s.findSpecial ? "yes" : "no") << "\r\n";
     return (bool)out;
 }
 
@@ -306,6 +312,8 @@ std::vector<HistoryRow> historyRows(const GameReport &rep, const std::string &ga
         r.gapNotCounted = rep.opening.gapRejected;
         r.bookEndPly = rep.opening.gapRejected ? rep.opening.bookEndPly : 0;
         r.bookMoves = p.bookMoves;
+        r.brilliant = p.brilliant;
+        r.great = p.great;
         r.bookVersion = rep.bookVersion;
         rows.push_back(r);
     }
@@ -343,6 +351,7 @@ std::vector<HistoryRow> readHistory(const std::string &csvPath)
         r.eco = get(23); r.opening = get(24); r.transposed = get(25) == "yes"; r.outOfBookGap = get(26) == "yes";
         r.bookMoves = (int)num(27); r.bookVersion = get(28);
         r.gapNotCounted = get(29) == "yes"; r.bookEndPly = (int)num(30);
+        r.brilliant = (int)num(31); r.great = (int)num(32);
         if (r.gameId.empty() || r.depth <= 0)
             continue;   // not one of ours (or a blank line)
         rows.push_back(r);

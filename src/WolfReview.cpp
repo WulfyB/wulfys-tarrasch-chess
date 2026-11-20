@@ -68,7 +68,7 @@ class ReviewSettingsDialog : public wxDialog
 {
 public:
     wxRadioBox *depth, *method;
-    wxCheckBox *record, *useBook;
+    wxCheckBox *record, *useBook, *special;
     int customDepth = 0;     // a depth set by hand in the .ini that isn't one of the four
 
     ReviewSettingsDialog(wxWindow *parent, const wolf::ReviewSettings &cur)
@@ -102,6 +102,9 @@ public:
         useBook = new wxCheckBox(this, wxID_ANY, "Use the opening book (book moves aren't judged; names the opening)");
         useBook->SetValue(cur.useBook);
         top->Add(useBook, 0, wxLEFT | wxRIGHT | wxTOP, 10);
+        special = new wxCheckBox(this, wxID_ANY, "Find great (!) and brilliant (!!) moves (reviews take a bit longer)");
+        special->SetValue(cur.findSpecial);
+        top->Add(special, 0, wxLEFT | wxRIGHT | wxTOP, 10);
         wxStaticText *note = new wxStaticText(this, wxID_ANY,
             "Deeper is more accurate but slower. Uses the engine from Options > Engine.\n"
             "History averages only compare games reviewed at the same depth and method.");
@@ -119,6 +122,7 @@ public:
         s.method = method->GetSelection() == 1 ? wolf::Method::Lichess : wolf::Method::SameRoot;
         s.recordHistory = record->GetValue();
         s.useBook = useBook->GetValue();
+        s.findSpecial = special->GetValue();
     }
 };
 
@@ -147,6 +151,13 @@ wxColour judgementTint(wolf::Judgement j)
 const wxColour kBestColour(40, 140, 60);
 const wxColour kBookColour(60, 110, 170);
 const wxColour kBookTint(226, 238, 252);
+const wxColour kBrilliantColour(20, 160, 150);
+const wxColour kBrilliantTint(208, 244, 240);
+const wxColour kGreatColour(100, 80, 205);
+const wxColour kGreatTint(232, 228, 252);
+
+wxColour specialColour(wolf::Special s) { return s == wolf::Special::Brilliant ? kBrilliantColour : kGreatColour; }
+wxColour specialTint(wolf::Special s)   { return s == wolf::Special::Brilliant ? kBrilliantTint : kGreatTint; }
 
 const char *nagFor(wolf::Judgement j, char &nag)
 {
@@ -181,6 +192,7 @@ public:
             chances.push_back(wolf::winningChances(s.ceiledCp()));
         for (const wolf::MoveReport &m : rep.moves) {
             marks.push_back(m.judgement);
+            specials.push_back(m.special);
             book.push_back(m.book);
         }
         SetToolTip("Evaluation graph - click or drag to step through the game");
@@ -196,6 +208,7 @@ private:
     std::vector<double> chances;
     std::vector<wolf::Judgement> marks;
     std::vector<bool> book;
+    std::vector<wolf::Special> specials;
     int selected = -2;
     int lastPicked = -3;
     static const int kMargin = 6;
@@ -271,6 +284,15 @@ private:
             dc.DrawLine(x, 0, x, h);
         }
 
+        for (size_t i = 0; i < specials.size() && i + 1 < chances.size(); ++i) {
+            if (specials[i] == wolf::Special::None)
+                continue;
+            int x = xFor((int)i + 1, w), y = yFor(chances[i + 1], h);
+            dc.SetPen(wxPen(*wxWHITE, 1));
+            dc.SetBrush(wxBrush(specialColour(specials[i])));
+            wxPoint star[4] = { wxPoint(x, y - 6), wxPoint(x + 6, y), wxPoint(x, y + 6), wxPoint(x - 6, y) };
+            dc.DrawPolygon(4, star);   // a diamond for ! and !!
+        }
         for (size_t i = 0; i < marks.size() && i + 1 < chances.size(); ++i) {
             if (marks[i] == wolf::Judgement::None)
                 continue;
@@ -390,7 +412,7 @@ public:
         wxBoxSizer *bar = new wxBoxSizer(wxHORIZONTAL);
         wxButton *prev = new wxButton(this, wxID_ANY, "< Previous mistake");
         wxButton *next = new wxButton(this, wxID_ANY, "Next mistake >");
-        onlyErrors = new wxCheckBox(this, wxID_ANY, "Only show inaccuracies, mistakes and blunders");
+        onlyErrors = new wxCheckBox(this, wxID_ANY, "Only show highlights (?!, ?, ??, !, !!)");
         bar->Add(prev, 0, wxRIGHT, 6);
         bar->Add(next, 0, wxRIGHT, 16);
         bar->Add(onlyErrors, 0, wxALIGN_CENTER_VERTICAL);
@@ -509,6 +531,10 @@ private:
         count("blunders", p.blunders, judgementColour(wolf::Judgement::Blunder));
         if (p.bookMoves)
             count("book", p.bookMoves, kBookColour);
+        if (p.great)
+            count("great", p.great, kGreatColour);
+        if (p.brilliant)
+            count("brilliant", p.brilliant, kBrilliantColour);
         box->Add(counts, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
         // Earlier games by this player, reviewed the same way (same depth, method and engine)
@@ -543,10 +569,11 @@ private:
         bool only = onlyErrors && onlyErrors->GetValue();
         for (size_t i = 0; i < rep.moves.size(); ++i) {
             const wolf::MoveReport &m = rep.moves[i];
-            if (only && m.judgement == wolf::Judgement::None)
+            if (only && m.judgement == wolf::Judgement::None && m.special == wolf::Special::None)
                 continue;
             long row = list->InsertItem(list->GetItemCount(), moveLabel(m));
             wxString verdict = m.book ? wxString("Book")
+                             : m.special != wolf::Special::None ? wxString(wolf::specialName(m.special)) + " " + wolf::specialSymbol(m.special)
                              : m.judgement != wolf::Judgement::None ? wxString(wolf::judgementName(m.judgement))
                              : (m.isBest ? wxString("Best") : wxString());
             list->SetItem(row, 1, verdict);
@@ -563,7 +590,10 @@ private:
             list->SetItem(row, 3, m.isBest ? wxString("-") : wxString::FromUTF8(m.bestSan.c_str()));
             list->SetItem(row, 4, m.cpl > 0 ? wxString::Format("%d", m.cpl) : wxString("0"));
             list->SetItem(row, 5, wxString::Format("%.0f%%", m.accuracy));
-            if (m.judgement != wolf::Judgement::None) {
+            if (m.special != wolf::Special::None) {
+                list->SetItemBackgroundColour(row, specialTint(m.special));
+                list->SetItemTextColour(row, specialColour(m.special).ChangeLightness(70));
+            } else if (m.judgement != wolf::Judgement::None) {
                 list->SetItemBackgroundColour(row, judgementTint(m.judgement));
                 list->SetItemTextColour(row, judgementColour(m.judgement).ChangeLightness(70));
             } else if (m.isBest) {
@@ -647,7 +677,10 @@ private:
         else {
             const wolf::MoveReport &m = rep.moves[moveIdx];
             wxString txt = "After " + moveLabel(m) + "  (" + wxString(m.after.str().c_str()) + ")";
-            if (!m.isBest)
+            if (m.special != wolf::Special::None)
+                txt += "  -  " + wxString(wolf::specialName(m.special)) + " " + wolf::specialSymbol(m.special) + ": " +
+                       wxString::FromUTF8(m.specialWhy.c_str());
+            else if (!m.isBest)
                 txt += "  -  engine preferred " + wxString::FromUTF8(m.bestSan.c_str()) + " (" + wxString(m.before.str().c_str()) + ")";
             status->SetLabel(txt);
         }
@@ -708,11 +741,18 @@ void addReviewToGame(GameLogic *gl, const wolf::GameReport &rep)
     size_t n = line.size() < rep.moves.size() ? line.size() : rep.moves.size();
     for (size_t i = 0; i < n; ++i) {
         const wolf::MoveReport &m = rep.moves[i];
+        GAME_MOVE &gm = line[i].game_move;
+        if (m.special != wolf::Special::None && !m.book) {
+            if (gm.nag_value1 == 0)
+                gm.nag_value1 = m.special == wolf::Special::Brilliant ? 3 : 1;   // !! / !
+            std::string c = std::string(wolf::specialName(m.special)) + " move: " + m.specialWhy;
+            gm.comment = gm.comment.empty() ? c : gm.comment + " " + c;
+            continue;
+        }
         char nag = 0;
         const char *what = nagFor(m.judgement, nag);
         if (!what)
             continue;
-        GAME_MOVE &gm = line[i].game_move;
         if (gm.nag_value1 == 0)
             gm.nag_value1 = nag;
         std::string c = std::string(what) + ". Best was " + m.bestSan + " (" + m.before.str() + ")";
@@ -793,6 +833,7 @@ void GameLogic::CmdGameReview()
     wolf::AnalysisOptions opt;
     opt.depth = cfg.depth;
     opt.method = cfg.method;
+    opt.findSpecial = cfg.findSpecial;
     std::string bookStatus;
     if (cfg.useBook) {
         if (wolf::loadReviewBook(iniPath, cfg, bookFallbacks(), g_book, bookStatus))

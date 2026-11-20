@@ -9,7 +9,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(TARRASCH_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 add_library(wolfcore STATIC
-    core/accuracy.cpp core/pgn.cpp core/uci_engine.cpp core/analysis.cpp core/elo.cpp core/report.cpp core/history.cpp core/opening.cpp
+    core/accuracy.cpp core/pgn.cpp core/uci_engine.cpp core/analysis.cpp core/elo.cpp core/report.cpp core/history.cpp core/opening.cpp core/special.cpp
     ${TARRASCH_SRC}/thc.cpp)
 target_include_directories(wolfcore PUBLIC core ${TARRASCH_SRC})
 if (MSVC)

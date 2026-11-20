@@ -2,6 +2,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace wolf {
 
@@ -11,6 +12,11 @@ struct EngineResult {
     int         value = 0;          // side-to-move POV: centipawns or mate distance
     int         depth = 0;
     std::string bestMoveUci;        // e.g. "e2e4", empty if none (terminal position)
+    std::vector<std::string> pv;    // the engine's main line (UCI), starting with the best move
+    // Second-best move (only when the engine runs with MultiPV 2 or more)
+    bool        hasSecond = false;
+    bool        secondIsMate = false;
+    int         secondValue = 0;    // side-to-move POV
 };
 
 class UciEngine {
