@@ -17,7 +17,7 @@ on:
   # Until wolf-eval is merged into master (schedules only run from the default branch),
   # changes to the book code on wolf-eval also start a build.
   push:
-    branches: [wolf-eval]
+    branches: [wolf-eval, wulfys-tarrasch]
     paths: ['.github/workflows/opening-book.yml', 'wolf-eval/cli/book_main.cpp', 'wolf-eval/core/opening.*']
   workflow_dispatch:
     inputs:

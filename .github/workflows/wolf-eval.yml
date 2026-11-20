@@ -2,7 +2,7 @@ name: Wolf Eval
 
 on:
   push:
-    branches: [wolf-eval]
+    branches: [wolf-eval, wulfys-tarrasch]
     paths: ['wolf-eval/**', 'src/thc.*', '.github/workflows/wolf-eval.yml']
   workflow_dispatch:
 
